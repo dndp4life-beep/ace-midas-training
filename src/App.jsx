@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
 const DEPOT_LOGIN_URL = "https://journeytracker.manus.space";
 const STRIPE_SUBSCRIPTION_URL = "https://buy.stripe.com/test_9B69ATd133zdfIhbcMdIA00";
 const CHECKOUT_API_URL = "/api/create-checkout-session";
+const BOOKING_DETAILS_ENDPOINT = "https://formspree.io/f/mykloeon";
 
 const courses = [
   { title: "MiDAS Standard", price: "£165", note: "Includes £40 CTA learner-pass charge", stripeUrl: "https://buy.stripe.com/test_fZucN52mp8Tx8fPft2dIA07" },
@@ -257,11 +258,131 @@ function BlogPage() {
     </main>
   );
 }
+function BookingConfirmationPage({ setPage }) {
+  const [form, setForm] = useState({
+    name: "",
+    organisation: "",
+    email: "",
+    phone: "",
+    course: "",
+    delegates: "",
+    location: "",
+    preferredDate1: "",
+    preferredDate2: "",
+    preferredDate3: "",
+    notes: ""
+  });
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState("");
+
+  function updateField(event) {
+    const { name, value } = event.target;
+    setForm((current) => ({ ...current, [name]: value }));
+  }
+
+  async function submitBookingDetails(event) {
+    event.preventDefault();
+    setError("");
+
+    try {
+      const response = await fetch(BOOKING_DETAILS_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          formType: "Post-payment training date selection",
+          ...form
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to submit booking details");
+      }
+
+      setSubmitted(true);
+    } catch (err) {
+      setError("Your payment was received, but the date form could not be sent. Please email info@ace-midas-training.co.uk with your preferred dates.");
+    }
+  }
+
+  return (
+    <main className="min-h-screen bg-slate-50 px-6 py-20">
+      <div className="mx-auto max-w-5xl">
+        <div className="rounded-3xl bg-emerald-500 p-8 text-center text-slate-950 shadow-sm">
+          <p className="font-semibold">Payment received</p>
+          <h2 className="mt-3 text-4xl font-bold md:text-6xl">Booking received ✅</h2>
+          <p className="mx-auto mt-4 max-w-3xl text-lg">Thank you. Your payment confirms your booking. Please now select your preferred training dates so we can confirm availability.</p>
+        </div>
+
+        <section className="mt-10 grid gap-6 lg:grid-cols-2">
+          <div className="rounded-3xl border bg-white p-7 shadow-sm">
+            <h3 className="text-2xl font-bold">What happens next?</h3>
+            <div className="mt-6 space-y-4 text-slate-700">
+              <p>✔ Submit your preferred dates using the form.</p>
+              <p>✔ We check trainer availability and confirm the final date.</p>
+              <p>✔ You receive confirmation and joining instructions.</p>
+              <p>✔ Please note: preferred dates are requested dates, not guaranteed until confirmed by ACE MiDAS Training.</p>
+            </div>
+            <div className="mt-6 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
+              Non-attendance is non-refundable once a confirmed training date has been agreed.
+            </div>
+          </div>
+
+          <div className="rounded-3xl border bg-white p-7 shadow-sm">
+            {submitted ? (
+              <div className="py-10 text-center">
+                <h3 className="text-2xl font-bold text-emerald-600">Preferred dates submitted ✅</h3>
+                <p className="mt-3 text-slate-600">We will review your request and contact you shortly.</p>
+                <button onClick={() => setPage("Home")} className="mt-6 rounded-xl bg-slate-950 px-6 py-3 font-bold text-white">Back to Home</button>
+              </div>
+            ) : (
+              <form onSubmit={submitBookingDetails} className="grid gap-4">
+                <h3 className="text-2xl font-bold">Select preferred dates</h3>
+                {error ? <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <input name="name" value={form.name} onChange={updateField} className="rounded-xl border p-3" placeholder="Full name" required />
+                  <input name="organisation" value={form.organisation} onChange={updateField} className="rounded-xl border p-3" placeholder="Organisation" required />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <input name="email" value={form.email} onChange={updateField} className="rounded-xl border p-3" placeholder="Email address" required />
+                  <input name="phone" value={form.phone} onChange={updateField} className="rounded-xl border p-3" placeholder="Phone number" />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <select name="course" value={form.course} onChange={updateField} className="rounded-xl border p-3" required>
+                    <option value="">Course booked</option>
+                    {courses.map((item) => <option key={item.title}>{item.title}</option>)}
+                  </select>
+                  <input name="delegates" value={form.delegates} onChange={updateField} className="rounded-xl border p-3" placeholder="Number of delegates paid for" required />
+                </div>
+                <input name="location" value={form.location} onChange={updateField} className="rounded-xl border p-3" placeholder="Training address / location" required />
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <input type="date" name="preferredDate1" value={form.preferredDate1} onChange={updateField} className="rounded-xl border p-3" required />
+                  <input type="date" name="preferredDate2" value={form.preferredDate2} onChange={updateField} className="rounded-xl border p-3" />
+                  <input type="date" name="preferredDate3" value={form.preferredDate3} onChange={updateField} className="rounded-xl border p-3" />
+                </div>
+                <textarea name="notes" value={form.notes} onChange={updateField} className="rounded-xl border p-3" rows={4} placeholder="Any notes, access arrangements, parking details or preferred times." />
+                <button type="submit" className="rounded-xl bg-slate-950 p-4 font-bold text-white">Submit Booking Details</button>
+              </form>
+            )}
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
+
 function Contact() { return <main className="min-h-screen bg-slate-50"><section className="bg-slate-950 px-6 py-24 text-white"><div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-2"><div><p className="font-semibold text-emerald-300">Contact ACE MiDAS Training</p><h2 className="mt-3 text-4xl font-bold md:text-6xl">We would love to hear from you</h2><p className="mt-6 text-lg text-slate-300">Tell us what you need and we’ll help with training, compliance support, group bookings or demo access.</p></div><div className="rounded-3xl bg-white/10 p-8 text-center"><div className="text-7xl">🤝</div><h3 className="mt-4 text-2xl font-bold">Partnership starts with a conversation</h3></div></div></section><section className="bg-emerald-500 px-6 py-20"><div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-2"><div><h2 className="text-4xl font-bold">Speak to us about your organisation</h2><div className="mt-8 rounded-3xl bg-slate-950 p-6 text-white"><p>Email: info@ace-midas-training.co.uk</p><p>Phone: 020 3633 4203 / 07570 988 597</p></div></div><form className="rounded-3xl bg-white p-7 shadow-xl"><h3 className="text-2xl font-bold">Lead Capture Form</h3><div className="mt-6 grid gap-4"><input className="rounded-xl border p-3" placeholder="Full name"/><input className="rounded-xl border p-3" placeholder="Organisation"/><input className="rounded-xl border p-3" placeholder="Email address"/><select className="rounded-xl border p-3"><option>What do you need?</option><option>MiDAS Training</option><option>PATS Training</option><option>ACE Compliance Hub Demo</option></select><textarea className="rounded-xl border p-3" rows={5} placeholder="Message"/><button type="button" className="rounded-xl bg-slate-950 p-3 font-bold text-white">Submit Enquiry</button></div></form></div></section></main>; }
 
 export default function AceMidasPreview() {
   const [page, setPage] = useState("Home");
   const [course, setCourse] = useState(null);
   const onBook = (c) => { setCourse(c); setPage("Booking"); };
-  return <div><Header page={page} setPage={setPage}/>{page === "Home" && <Home setPage={setPage} onBook={onBook}/>} {page === "Training" && <Training onBook={onBook}/>} {page === "Booking" && <Booking course={course} setPage={setPage}/>} {page === "Compliance" && <CompliancePage setPage={setPage}/>} {page === "Packages" && <PackagesPage setPage={setPage}/>} {page === "Reviews" && <ReviewsPage/>} {page === "Blog" && <BlogPage/>} {page === "Contact" && <Contact/>}</div>;
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("payment") === "success" || params.get("success") === "true") {
+      setPage("BookingConfirmation");
+    }
+  }, []);
+
+  return <div><Header page={page} setPage={setPage}/>{page === "Home" && <Home setPage={setPage} onBook={onBook}/>} {page === "Training" && <Training onBook={onBook}/>} {page === "Booking" && <Booking course={course} setPage={setPage}/>} {page === "BookingConfirmation" && <BookingConfirmationPage setPage={setPage}/>} {page === "Compliance" && <CompliancePage setPage={setPage}/>} {page === "Packages" && <PackagesPage setPage={setPage}/>} {page === "Reviews" && <ReviewsPage/>} {page === "Blog" && <BlogPage/>} {page === "Contact" && <Contact/>}</div>;
 }
