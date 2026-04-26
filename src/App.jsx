@@ -2,6 +2,7 @@ import React, { useState } from "react";
 
 const DEPOT_LOGIN_URL = "https://journeytracker.manus.space";
 const STRIPE_SUBSCRIPTION_URL = "https://buy.stripe.com/test_9B69ATd133zdfIhbcMdIA00";
+const CHECKOUT_API_URL = "/api/create-checkout-session";
 
 const courses = [
   { title: "MiDAS Standard", price: "£165", note: "Includes £40 CTA learner-pass charge", stripeUrl: "https://buy.stripe.com/test_fZucN52mp8Tx8fPft2dIA07" },
@@ -101,18 +102,54 @@ function Booking({ course, setPage }) {
   const [qty, setQty] = useState(1);
   const [outside, setOutside] = useState(false);
   const [agree, setAgree] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [paymentError, setPaymentError] = useState("");
   const nums = course.price.match(/\d+/g)?.map(Number) || [0];
   const low = nums[0], high = nums[1] || nums[0];
-  const unit = nums.length > 1 ? (qty >= 10 ? low : high) : qty >= 10 ? Math.round(high * 0.8) : qty >= 5 ? Math.round(high * 0.9) : high;
+  const discountTier = qty >= 9 ? "9–12 delegates" : qty >= 4 ? "4–8 delegates" : "1–3 delegates";
+  const discountLabel = qty >= 9 ? "20% group discount" : qty >= 4 ? "10% small group discount" : "Standard rate";
+  const unit = nums.length > 1 ? (qty >= 9 ? low : qty >= 4 ? Math.round(high * 0.9) : high) : qty >= 9 ? Math.round(high * 0.8) : qty >= 4 ? Math.round(high * 0.9) : high;
+  const savingPerDelegate = Math.max(0, high - unit);
   const max = course.title.includes("PATS Accessible") || course.title.includes("First Aid") || course.title.includes("Children") ? 12 : 20;
   const total = unit * qty + (outside ? 75 : 0);
-  return <main className="min-h-screen bg-slate-50 px-6 py-20"><div className="mx-auto max-w-5xl"><h2 className="text-center text-4xl font-bold md:text-6xl">Confirm your booking</h2><div className="mt-12 grid gap-6 lg:grid-cols-2"><div className="rounded-3xl border bg-white p-7 shadow-sm"><h3 className="text-2xl font-bold">{course.title}</h3><p className="mt-2 text-slate-500">{course.note}</p><label className="mt-6 block font-semibold">Number of delegates</label><input type="number" min="1" max={max} value={qty} onChange={(e)=>setQty(Math.max(1, Math.min(max, Number(e.target.value)||1)))} className="mt-2 w-full rounded-xl border p-3"/><p className="mt-2 text-xs text-slate-500">Max allowed: {max}</p><div className="mt-6 grid gap-3 sm:grid-cols-2"><button onClick={()=>setOutside(false)} className={`rounded-xl px-4 py-3 font-bold ${!outside ? "bg-emerald-600 text-white":"bg-slate-100"}`}>Inside A406</button><button onClick={()=>setOutside(true)} className={`rounded-xl px-4 py-3 font-bold ${outside ? "bg-red-600 text-white":"bg-slate-100"}`}>Outside A406</button></div></div><div className="rounded-3xl border bg-white p-7 shadow-sm"><h3 className="text-2xl font-bold">Price Breakdown</h3><div className="mt-6 space-y-4"><div className="flex justify-between"><span>Price per delegate</span><b>£{unit}</b></div><div className="flex justify-between"><span>Delegates selected</span><b>{qty}</b></div><div className="flex justify-between"><span>Travel fee</span><b>£{outside ? 75 : 0}</b></div><div className="flex justify-between border-t pt-4 text-2xl"><span>Estimated total</span><b className="text-emerald-600">£{total}</b></div></div><div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800"><strong>Important:</strong> On the next Stripe checkout page, please confirm the same number of delegates. Your booking will only be processed for the number of delegates paid for in Stripe.</div></div></div><section className="mt-10 rounded-3xl border bg-white p-7 shadow-sm"><h3 className="text-2xl font-bold">Booking Agreement</h3><p className="mt-4 text-sm leading-7 text-slate-700">By selecting “Yes, I agree”, you confirm this booking forms a binding agreement. Payment confirms the booking. No refunds for non-attendance. You must ensure the delegate quantity selected on the Stripe checkout page matches the delegate quantity selected here.</p><div className="mt-6 grid gap-4 sm:grid-cols-2"><button onClick={()=>setAgree(true)} className={`rounded-xl p-4 font-bold ${agree ? "bg-emerald-600 text-white":"bg-emerald-100 text-emerald-800"}`}>Yes, I agree</button><button onClick={()=>setAgree(false)} className="rounded-xl bg-red-100 p-4 font-bold text-red-800">No, I do not agree</button></div><button disabled={!agree} onClick={() => {
-  if (!course.stripeUrl) {
-    alert("No Stripe link has been added for this course yet.");
-    return;
+
+  async function continueToPayment() {
+    if (!agree) return;
+
+    setIsLoading(true);
+    setPaymentError("");
+
+    try {
+      const response = await fetch(CHECKOUT_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseTitle: course.title,
+          quantity: qty,
+          unitPrice: unit,
+          subtotal: unit * qty,
+          travelFee: outside ? 75 : 0,
+          total,
+          outsideA406: outside,
+          agreementAccepted: true,
+          refundPolicy: "No refunds for non-attendance"
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.url) {
+        throw new Error(data.error || "Unable to create Stripe checkout");
+      }
+
+      window.location.href = data.url;
+    } catch (error) {
+      setPaymentError(error.message || "Unable to create Stripe checkout. Please try again or contact ACE MiDAS Training.");
+      setIsLoading(false);
+    }
   }
-  window.open(course.stripeUrl, "_blank", "noopener,noreferrer");
-}} className={`mt-6 w-full rounded-xl p-4 font-bold ${agree ? "bg-slate-950 text-white":"bg-slate-200 text-slate-400"}`}>Continue to Stripe — confirm {qty} delegate{qty === 1 ? "" : "s"}</button><button onClick={()=>setPage("Training")} className="mt-4 w-full rounded-xl border p-4 font-bold">Back to Training</button></section></div></main>;
+
+  return <main className="min-h-screen bg-slate-50 px-6 py-20"><div className="mx-auto max-w-5xl"><h2 className="text-center text-4xl font-bold md:text-6xl">Confirm your booking</h2><div className="mt-12 grid gap-6 lg:grid-cols-2"><div className="rounded-3xl border bg-white p-7 shadow-sm"><h3 className="text-2xl font-bold">{course.title}</h3><p className="mt-2 text-slate-500">{course.note}</p><label className="mt-6 block font-semibold">Number of delegates</label><input type="number" min="1" max={max} value={qty} onChange={(e)=>setQty(Math.max(1, Math.min(max, Number(e.target.value)||1)))} className="mt-2 w-full rounded-xl border p-3"/><p className="mt-2 text-xs text-slate-500">Max allowed: {max}</p><div className="mt-6 grid gap-3 sm:grid-cols-2"><button onClick={()=>setOutside(false)} className={`rounded-xl px-4 py-3 font-bold ${!outside ? "bg-emerald-600 text-white":"bg-slate-100"}`}>Inside A406</button><button onClick={()=>setOutside(true)} className={`rounded-xl px-4 py-3 font-bold ${outside ? "bg-red-600 text-white":"bg-slate-100"}`}>Outside A406</button></div></div><div className="rounded-3xl border bg-white p-7 shadow-sm"><h3 className="text-2xl font-bold">Price Breakdown</h3><div className="mt-6 space-y-4"><div className="flex justify-between"><span>Price per delegate</span><div className="text-right">{savingPerDelegate > 0 ? <p className="text-sm line-through text-slate-400">£{high}</p> : null}<b>£{unit}</b></div></div><div className="flex justify-between"><span>Discount tier</span><b>{discountTier} — {discountLabel}</b></div><div className="flex justify-between"><span>Delegates selected</span><b>{qty}</b></div><div className="flex justify-between"><span>Training subtotal</span><b>£{unit * qty}</b></div><div className="flex justify-between"><span>Travel fee</span><b>£{outside ? 75 : 0}</b></div><div className="flex justify-between border-t pt-4 text-2xl"><span>Estimated total</span><b className="text-emerald-600">£{total}</b></div>{savingPerDelegate > 0 ? <p className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">You’re saving £{savingPerDelegate * qty} on this booking.</p> : null}</div><div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800"><strong>Important:</strong> On the next Stripe checkout page, please confirm the same number of delegates. Your booking will only be processed for the number of delegates paid for in Stripe.</div></div></div><section className="mt-10 rounded-3xl border bg-white p-7 shadow-sm"><h3 className="text-2xl font-bold">Booking Agreement</h3><p className="mt-4 text-sm leading-7 text-slate-700">By selecting “Yes, I agree”, you confirm this booking forms a binding agreement. Payment confirms the booking. No refunds for non-attendance. You must ensure the delegate quantity selected on the Stripe checkout page matches the delegate quantity selected here.</p><div className="mt-6 grid gap-4 sm:grid-cols-2"><button onClick={()=>setAgree(true)} className={`rounded-xl p-4 font-bold ${agree ? "bg-emerald-600 text-white":"bg-emerald-100 text-emerald-800"}`}>Yes, I agree</button><button onClick={()=>setAgree(false)} className="rounded-xl bg-red-100 p-4 font-bold text-red-800">No, I do not agree</button></div>{paymentError ? <p className="mt-5 rounded-xl bg-red-50 p-4 text-sm text-red-700">{paymentError}</p> : null}<button disabled={!agree || isLoading} onClick={continueToPayment} className={`mt-6 w-full rounded-xl p-4 font-bold ${agree && !isLoading ? "bg-slate-950 text-white":"bg-slate-200 text-slate-400"}`}>{isLoading ? "Creating secure checkout..." : `Continue to Secure Payment — £${total}`}</button><button onClick={()=>setPage("Training")} className="mt-4 w-full rounded-xl border p-4 font-bold">Back to Training</button></section></div></main>;
 }
 
 function CompliancePage({ setPage }) {
