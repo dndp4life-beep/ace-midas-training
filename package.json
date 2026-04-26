@@ -4,14 +4,15 @@
     "build": "vite build",
     "preview": "vite preview"
   },
- "dependencies": {
+"dependencies": {
   "@vitejs/plugin-react": "latest",
   "vite": "latest",
   "react": "latest",
   "react-dom": "latest",
-  "tailwindcss": "3.4.17",
-  "postcss": "8.4.49",
-  "autoprefixer": "10.4.20",
+  "tailwindcss": "latest",
+  "@tailwindcss/postcss": "latest",
+  "postcss": "latest",
+  "autoprefixer": "latest",
   "stripe": "latest"
 }
   },
