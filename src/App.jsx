@@ -4,6 +4,7 @@ const DEPOT_LOGIN_URL = "https://journeytracker.manus.space";
 const STRIPE_SUBSCRIPTION_URL = "https://buy.stripe.com/test_9B69ATd133zdfIhbcMdIA00";
 const CHECKOUT_API_URL = "/api/create-checkout-session";
 const BOOKING_DETAILS_ENDPOINT = "https://formspree.io/f/mykloeon";
+const BOOKING_CONFIRMATION_API = "/api/send-booking-confirmation";
 
 const courses = [
   { title: "MiDAS Standard", price: "£165", note: "Includes £40 CTA learner-pass charge", stripeUrl: "https://buy.stripe.com/test_fZucN52mp8Tx8fPft2dIA07" },
@@ -298,9 +299,19 @@ function BookingConfirmationPage({ setPage }) {
         throw new Error("Unable to submit booking details");
       }
 
+      const confirmationResponse = await fetch(BOOKING_CONFIRMATION_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form)
+      });
+
+      if (!confirmationResponse.ok) {
+        throw new Error("Booking details saved, but confirmation email failed");
+      }
+
       setSubmitted(true);
     } catch (err) {
-      setError("Your payment was received, but the date form could not be sent. Please email info@ace-midas-training.co.uk with your preferred dates.");
+      setError("Your payment was received, but the confirmation process could not be completed. Please email info@ace-midas-training.co.uk with your preferred dates.");
     }
   }
 
@@ -331,7 +342,7 @@ function BookingConfirmationPage({ setPage }) {
             {submitted ? (
               <div className="py-10 text-center">
                 <h3 className="text-2xl font-bold text-emerald-600">Preferred dates submitted ✅</h3>
-                <p className="mt-3 text-slate-600">We will review your request and contact you shortly.</p>
+                <p className="mt-3 text-slate-600">We will review your request and contact you shortly. A booking summary email has also been sent to the customer email address provided.</p>
                 <button onClick={() => setPage("Home")} className="mt-6 rounded-xl bg-slate-950 px-6 py-3 font-bold text-white">Back to Home</button>
               </div>
             ) : (
