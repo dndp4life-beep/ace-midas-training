@@ -1,12 +1,58 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 
 const DEPOT_LOGIN_URL = "https://journeytracker.manus.space";
 const STRIPE_SUBSCRIPTION_URL = "https://buy.stripe.com/test_9B69ATd133zdfIhbcMdIA00";
+const FORMSPREE_ENDPOINT = "https://formspree.io/f/mykloeon";
 const CHECKOUT_API_URL = "/api/create-checkout-session";
-const BOOKING_DETAILS_ENDPOINT = "https://formspree.io/f/mykloeon";
-const BOOKING_CONFIRMATION_API = "/api/send-booking-confirmation";
 
-const courses = [
+function Icon() {
+  return <span className="text-emerald-500 text-lg font-bold">✔</span>;
+}
+
+function Header({ setPage, cta = "Member Login", ctaHref = DEPOT_LOGIN_URL }) {
+  const navItems = [
+    ["home", "Home"],
+    ["training", "Training"],
+    ["system", "Compliance System"],
+    ["packages", "Packages"],
+    ["reviews", "Reviews"],
+    ["blog", "Blog"],
+    ["contact", "Contact"]
+  ];
+
+  return (
+    <header className="sticky top-0 z-50 bg-white/95 backdrop-blur shadow-sm">
+      <div className="max-w-7xl mx-auto flex justify-between items-center px-6 py-4">
+        <button type="button" onClick={() => setPage("home")} className="text-left">
+          <h1 className="font-bold text-xl text-slate-950">ACE MiDAS Training</h1>
+          <p className="text-xs text-slate-500">Training • Compliance • Digital Systems</p>
+        </button>
+        <nav className="hidden md:flex gap-5 text-sm text-slate-600">
+          {navItems.map(([key, label]) => (
+            <button key={key} type="button" onClick={() => setPage(key)} className="hover:text-emerald-600">
+              {label}
+            </button>
+          ))}
+        </nav>
+        <a href={ctaHref} target="_blank" rel="noopener noreferrer" className="bg-emerald-500 text-white px-5 py-2 rounded-xl font-semibold shadow-sm">
+          {cta}
+        </a>
+      </div>
+    </header>
+  );
+}
+
+function SectionHeading({ label, title, text, light = false }) {
+  return (
+    <div className="max-w-3xl">
+      <p className={light ? "text-emerald-300 font-semibold" : "text-emerald-600 font-semibold"}>{label}</p>
+      <h2 className={light ? "text-3xl md:text-5xl font-bold mt-3 text-white" : "text-3xl md:text-5xl font-bold mt-3 text-slate-950"}>{title}</h2>
+      {text ? <p className={light ? "mt-4 text-slate-300 leading-8" : "mt-4 text-slate-600 leading-8"}>{text}</p> : null}
+    </div>
+  );
+}
+
+const trainingPrices = [
   { title: "MiDAS Standard", price: "£165", note: "Includes £40 CTA learner-pass charge", stripeUrl: "https://buy.stripe.com/test_fZucN52mp8Tx8fPft2dIA07" },
   { title: "MiDAS Accessible", price: "£210", note: "Includes £40 CTA learner-pass charge", stripeUrl: "https://buy.stripe.com/test_8x2aEX3qt9XBanX5SsdIA06" },
   { title: "PATS Standard", price: "£125", note: "Includes £30 CTA learner-pass charge", stripeUrl: "https://buy.stripe.com/test_fZubJ12mpglZ0Nn94EdIA05" },
@@ -15,385 +61,443 @@ const courses = [
   { title: "Children’s Transport First Aid", price: "£95–£135", note: "Optional epilepsy medication module", stripeUrl: "https://buy.stripe.com/test_8x200jgdffhV67H94EdIA02" }
 ];
 
-const features = [
+const systemFeatures = [
   "Journey reporting",
   "Medication tracking",
   "Attendance recording",
   "Wheelchair safety checklists",
   "Incident reporting",
+  "Depot login for SaaS members",
+  "Secure member access",
   "Audit-ready records"
 ];
 
-function Header({ page, setPage }) {
-  const nav = ["Home", "Training", "Compliance", "Packages", "Reviews", "Blog", "Contact"];
-  return (
-    <header className="sticky top-0 z-50 bg-white/95 shadow-sm backdrop-blur">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-        <button onClick={() => setPage("Home")} className="text-left">
-          <h1 className="text-xl font-bold text-slate-950">ACE MiDAS Training</h1>
-          <p className="text-xs text-slate-500">Training • Compliance • Digital Systems</p>
-        </button>
-        <nav className="hidden gap-5 text-sm text-slate-600 md:flex">
-          {nav.map((item) => (
-            <button key={item} onClick={() => setPage(item)} className={page === item ? "font-bold text-emerald-600" : "hover:text-emerald-600"}>{item}</button>
-          ))}
-        </nav>
-        <a href={DEPOT_LOGIN_URL} target="_blank" rel="noreferrer" className="rounded-xl bg-emerald-500 px-5 py-2 font-semibold text-white">Member Login</a>
-      </div>
-    </header>
-  );
-}
+const packages = [
+  {
+    title: "Essential Training",
+    price: "Pay per course",
+    text: "For organisations that need certified MiDAS, PATS or First Aid training only.",
+    points: ["MiDAS, PATS or First Aid", "Certification support", "Group booking options"],
+    cta: "Enquire"
+  },
+  {
+    title: "Compliance Bundle",
+    price: "From £495/month",
+    text: "Training plus paid access to ACE Compliance Hub for daily compliance tracking.",
+    points: ["Subscription access", "Depot login", "Journey and medication tracking", "Attendance and incident records"],
+    cta: "Subscribe for Access"
+  },
+  {
+    title: "Premium Compliance Partner",
+    price: "From £1,200/month",
+    text: "Full compliance support, setup, onboarding and reporting for larger operators.",
+    points: ["Full depot setup", "Staff onboarding", "Quarterly compliance review", "Priority support"],
+    cta: "Request Demo"
+  }
+];
 
-function CourseCard({ course, onBook }) {
-  return (
-    <button onClick={() => onBook(course)} className="rounded-3xl border border-slate-200 bg-white p-6 text-left shadow-sm transition hover:border-emerald-500 hover:shadow-lg">
-      <p className="text-sm text-slate-500">{course.title}</p>
-      <p className="mt-3 text-3xl font-bold">{course.price}</p>
-      <p className="mt-3 text-sm text-slate-600">{course.note}</p>
-      <p className="mt-5 font-bold text-emerald-700">Book this course →</p>
-    </button>
-  );
-}
+const audienceCards = [
+  { title: "Local Authorities & Councils", text: "Help contracted operators evidence safe, consistent and audit-ready passenger transport practice." },
+  { title: "Schools & Academy Trusts", text: "Support SEND transport arrangements with clear journey, attendance, incident and medication records." },
+  { title: "Transport Providers", text: "Protect your contracts and improve oversight with training, depot access and structured compliance records." }
+];
 
-function Home({ setPage, onBook }) {
+const painPoints = [
+  "Paper-based records get lost or completed incorrectly",
+  "Staff are unsure what needs to be recorded",
+  "Incidents are not tracked or reviewed properly",
+  "No clear audit trail for councils or contracts",
+  "Training is delivered but not monitored in practice",
+  "Compliance checks are reactive instead of proactive"
+];
+
+export default function App() {
+  const [page, setPage] = useState("home");
+  const [selectedCourse, setSelectedCourse] = useState(null);
+
+  function startCourseBooking(course) {
+    setSelectedCourse(course);
+    setPage("booking");
+  }
+
   return (
     <>
-      <section className="bg-slate-950 px-6 py-24 text-white md:py-32">
-        <div className="mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-2">
+      {page === "home" && <Homepage setPage={setPage} startCourseBooking={startCourseBooking} />}
+      {page === "training" && <TrainingPage setPage={setPage} startCourseBooking={startCourseBooking} />}
+      {page === "booking" && <CourseBookingPage setPage={setPage} course={selectedCourse} />}
+      {page === "system" && <ComplianceSystemPage setPage={setPage} />}
+      {page === "packages" && <PackagesPage setPage={setPage} />}
+      {page === "reviews" && <ReviewsPage setPage={setPage} />}
+      {page === "blog" && <BlogPage setPage={setPage} />}
+      {page === "contact" && <ContactPage setPage={setPage} />}
+      {page === "login" && <LoginGatewayPage setPage={setPage} />}
+      {page === "adminFollowUp" && <AdminFollowUpDashboard setPage={setPage} />}
+    </>
+  );
+}
+
+function Homepage({ setPage, startCourseBooking }) {
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-950">
+      <Header setPage={setPage} />
+      <section className="bg-slate-950 text-white px-6 py-24 md:py-32">
+        <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
           <div>
-            <div className="mb-6 inline-block rounded-full border border-emerald-400/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-200">Built for SEND transport, schools, councils and operators</div>
-            <h2 className="text-4xl font-bold leading-tight md:text-6xl">Training, Compliance & Digital Systems for Safe Passenger Transport</h2>
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">MiDAS, PATS and First Aid training alongside a paid compliance platform for journey reporting, medication logs, attendance, wheelchair checks and incident reporting.</p>
-            <div className="mt-8 flex flex-col gap-4 sm:flex-row">
-              <button onClick={() => setPage("Training")} className="rounded-xl bg-emerald-400 px-7 py-3 font-bold text-slate-950">Book Training</button>
-              <a href={STRIPE_SUBSCRIPTION_URL} target="_blank" rel="noreferrer" className="rounded-xl border border-white/20 bg-white/5 px-7 py-3 text-center font-bold text-white">Subscribe for Access</a>
+            <div className="inline-block bg-emerald-500/10 border border-emerald-400/30 text-emerald-200 px-4 py-2 rounded-full text-sm mb-6">
+              Built for SEND transport, schools, councils and passenger transport operators
+            </div>
+            <h1 className="text-4xl md:text-6xl font-bold leading-tight">Training, Compliance & Digital Systems for Safe Passenger Transport</h1>
+            <p className="mt-6 text-lg text-slate-300 leading-8 max-w-2xl">
+              ACE MiDAS Training provides MiDAS, PATS and First Aid training alongside a paid digital compliance platform for journey reporting, medication logs, attendance, wheelchair checks and incident reporting.
+            </p>
+            <div className="mt-8 flex flex-col sm:flex-row gap-4">
+              <button type="button" onClick={() => setPage("training")} className="bg-emerald-400 text-slate-950 px-7 py-3 rounded-xl font-bold text-center">Book Training</button>
+              <a href={STRIPE_SUBSCRIPTION_URL} target="_blank" rel="noopener noreferrer" className="border border-white/20 bg-white/5 text-white px-7 py-3 rounded-xl font-bold text-center">Subscribe for Access</a>
             </div>
           </div>
-          <div className="rounded-3xl border border-white/10 bg-white/10 p-6 shadow-2xl">
-            <div className="rounded-2xl bg-slate-900 p-6">
+          <div className="bg-white/10 border border-white/10 rounded-3xl p-6 shadow-2xl">
+            <div className="bg-slate-900 rounded-2xl p-6">
               <p className="text-sm text-slate-400">ACE Compliance Hub</p>
-              <h3 className="mt-2 text-2xl font-bold">Paid member access to your compliance platform</h3>
-              <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                {features.map((f) => <div key={f} className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200">✔ {f}</div>)}
+              <h2 className="text-2xl font-bold mt-2">Paid member access to your compliance platform</h2>
+              <p className="text-slate-300 mt-3 text-sm leading-6">SaaS customers subscribe first, then access the system through the member/depot login.</p>
+              <div className="grid sm:grid-cols-2 gap-3 mt-6">
+                {systemFeatures.map((feature) => (
+                  <div key={feature} className="bg-white/5 border border-white/10 rounded-xl p-4 text-sm text-slate-200">
+                    <Icon /> <span className="ml-2">{feature}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3 mt-6">
+                <a href={STRIPE_SUBSCRIPTION_URL} target="_blank" rel="noopener noreferrer" className="bg-emerald-400 text-slate-950 rounded-xl px-4 py-3 text-center text-sm font-bold">Subscribe for Access</a>
+                <a href={DEPOT_LOGIN_URL} target="_blank" rel="noopener noreferrer" className="bg-white/10 border border-white/10 rounded-xl px-4 py-3 text-center text-sm font-bold text-white">Member Login</a>
               </div>
             </div>
           </div>
         </div>
       </section>
-      <section className="bg-white px-6 py-20">
-        <div className="mx-auto max-w-7xl">
-          <p className="font-semibold text-emerald-600">2026 Training Prices</p>
-          <h2 className="mt-3 text-3xl font-bold md:text-5xl">Click a course to begin booking</h2>
-          <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-3">{courses.map(c => <CourseCard key={c.title} course={c} onBook={onBook} />)}</div>
+
+      <section className="px-6 py-20">
+        <div className="max-w-7xl mx-auto grid md:grid-cols-3 gap-6">
+          {[
+            ["Transport Training", "Certified MiDAS, PATS and First Aid training for transport operators, schools and SEND services."],
+            ["Paid SaaS Platform", "Your compliance platform is delivered as part of a paid package, not as a public free tool."],
+            ["Private Admin Control", "Admin controls remain private. Public users only see subscription access and member login routes."]
+          ].map(([title, text]) => (
+            <div key={title} className="bg-white rounded-3xl p-7 shadow-sm border border-slate-200">
+              <h3 className="text-xl font-bold">{title}</h3>
+              <p className="mt-3 text-slate-600 leading-7">{text}</p>
+            </div>
+          ))}
         </div>
       </section>
-      <section className="bg-emerald-500 px-6 py-20 text-center text-slate-950">
-        <h2 className="text-3xl font-bold md:text-5xl">We would love to hear from you</h2>
-        <p className="mx-auto mt-4 max-w-2xl text-lg">Whether you need training, a group quote, or a demo, get in touch.</p>
-        <button onClick={() => setPage("Contact")} className="mt-8 rounded-xl bg-slate-950 px-7 py-3 font-bold text-white">Go to Contact Page</button>
+
+      <section className="bg-white px-6 py-20">
+        <div className="max-w-7xl mx-auto">
+          <SectionHeading label="2026 Training Prices" title="Clear pricing for training and certification" text="Click a course to begin the booking process." />
+          <CourseGrid startCourseBooking={startCourseBooking} />
+        </div>
       </section>
-    </>
+
+      <section className="px-6 py-20 bg-slate-950 text-white">
+        <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
+          <SectionHeading label="ACE Compliance Hub" title="A live compliance app behind paid member access" text="The website explains the value, sells the package and sends paying customers to the secure member login." light />
+          <div className="grid sm:grid-cols-2 gap-4">
+            {systemFeatures.map((feature) => (
+              <div key={feature} className="bg-white/5 border border-white/10 rounded-2xl p-5 text-slate-200"><Icon /> <span className="ml-2">{feature}</span></div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="px-6 py-20 bg-emerald-500 text-slate-950 text-center">
+        <div className="max-w-4xl mx-auto">
+          <p className="font-semibold">Ready to talk?</p>
+          <h2 className="text-3xl md:text-5xl font-bold mt-3">We would love to hear from you</h2>
+          <p className="mt-4 text-lg max-w-2xl mx-auto">Whether you need training, a group quote, or a demo of ACE Compliance Hub, get in touch and we’ll help you choose the right option.</p>
+          <button type="button" onClick={() => setPage("contact")} className="mt-8 bg-slate-950 text-white px-7 py-3 rounded-xl font-bold">Go to Contact Page</button>
+        </div>
+      </section>
+    </div>
   );
 }
 
-function Training({ onBook }) {
-  return <main className="min-h-screen bg-slate-50 px-6 py-20"><div className="mx-auto max-w-7xl"><p className="font-semibold text-emerald-600">Training Services</p><h2 className="mt-3 text-4xl font-bold md:text-6xl">MiDAS, PATS and First Aid training</h2><p className="mt-4 max-w-3xl text-slate-600">Professional training for SEND transport, schools, councils and passenger transport operators.</p><div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-3">{courses.map(c => <CourseCard key={c.title} course={c} onBook={onBook} />)}</div></div></main>;
+function CourseGrid({ startCourseBooking }) {
+  return (
+    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5 mt-10">
+      {trainingPrices.map((course) => (
+        <button key={course.title} type="button" onClick={() => startCourseBooking(course)} className="text-left border border-slate-200 rounded-3xl p-6 shadow-sm hover:border-emerald-500 hover:shadow-lg transition bg-white">
+          <p className="text-sm text-slate-500">{course.title}</p>
+          <p className="text-3xl font-bold mt-3">{course.price}</p>
+          <p className="text-sm text-slate-600 mt-3">{course.note}</p>
+          <p className="mt-5 text-emerald-700 font-bold">Book this course →</p>
+        </button>
+      ))}
+    </div>
+  );
 }
 
-function Booking({ course, setPage }) {
-  const [qty, setQty] = useState(1);
-  const [outside, setOutside] = useState(false);
-  const [agree, setAgree] = useState(false);
+function TrainingPage({ setPage, startCourseBooking }) {
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-950">
+      <Header setPage={setPage} />
+      <section className="bg-slate-950 text-white px-6 py-24">
+        <div className="max-w-7xl mx-auto">
+          <p className="text-emerald-300 font-semibold">Training Services</p>
+          <h1 className="text-4xl md:text-6xl font-bold mt-3">MiDAS, PATS and First Aid training for passenger transport</h1>
+          <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-300">Professional training for schools, councils, SEND transport teams, community transport providers and passenger transport operators.</p>
+        </div>
+      </section>
+      <section className="bg-white px-6 py-20">
+        <div className="max-w-7xl mx-auto">
+          <SectionHeading label="2026 Prices" title="Course pricing" text="Click a course to begin booking." />
+          <CourseGrid startCourseBooking={startCourseBooking} />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function parsePriceRange(price) {
+  const numbers = price.match(/\d+/g)?.map(Number) || [0];
+  return numbers.length > 1 ? { low: numbers[0], high: numbers[1] } : { low: numbers[0], high: numbers[0] };
+}
+
+function CourseBookingPage({ setPage, course }) {
+  const [agreement, setAgreement] = useState(null);
+  const [quantity, setQuantity] = useState(1);
+  const [outsideA406, setOutsideA406] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [paymentError, setPaymentError] = useState("");
-  const nums = course.price.match(/\d+/g)?.map(Number) || [0];
-  const low = nums[0], high = nums[1] || nums[0];
-  const discountTier = qty >= 9 ? "9–12 delegates" : qty >= 4 ? "4–8 delegates" : "1–3 delegates";
-  const discountLabel = qty >= 9 ? "20% group discount" : qty >= 4 ? "10% small group discount" : "Standard rate";
-  const unit = nums.length > 1 ? (qty >= 9 ? low : qty >= 4 ? Math.round(high * 0.9) : high) : qty >= 9 ? Math.round(high * 0.8) : qty >= 4 ? Math.round(high * 0.9) : high;
-  const savingPerDelegate = Math.max(0, high - unit);
-  const max = course.title.includes("PATS Accessible") || course.title.includes("First Aid") || course.title.includes("Children") ? 12 : 20;
-  const total = unit * qty + (outside ? 75 : 0);
+  const [bookingError, setBookingError] = useState("");
 
-  async function continueToPayment() {
-    if (!agree) return;
+  if (!course) {
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-950">
+        <Header setPage={setPage} />
+        <main className="max-w-4xl mx-auto px-6 py-20 text-center">
+          <h1 className="text-4xl font-bold">No course selected</h1>
+          <p className="mt-4 text-slate-600">Please choose a course from the Training page.</p>
+          <button type="button" onClick={() => setPage("training")} className="mt-8 bg-slate-950 text-white px-6 py-3 rounded-xl font-bold">Back to Training</button>
+        </main>
+      </div>
+    );
+  }
 
+  const isCappedAt12 = course.title.includes("PATS Accessible") || course.title.includes("First Aid") || course.title.includes("Children");
+  const maxCap = isCappedAt12 ? 12 : 20;
+  const { low, high } = parsePriceRange(course.price);
+  const unitPrice = low !== high ? (quantity >= 10 ? low : high) : quantity >= 10 ? Math.round(high * 0.8) : quantity >= 5 ? Math.round(high * 0.9) : high;
+  const subtotal = unitPrice * quantity;
+  const travelFee = outsideA406 ? 75 : 0;
+  const total = subtotal + travelFee;
+
+  async function proceedToPayment() {
+    if (agreement !== "yes") return;
     setIsLoading(true);
-    setPaymentError("");
-
+    setBookingError("");
     try {
       const response = await fetch(CHECKOUT_API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           courseTitle: course.title,
-          quantity: qty,
-          unitPrice: unit,
-          subtotal: unit * qty,
-          travelFee: outside ? 75 : 0,
+          quantity,
+          unitPrice,
+          subtotal,
+          travelFee,
           total,
-          outsideA406: outside,
+          outsideA406,
           agreementAccepted: true,
           refundPolicy: "No refunds for non-attendance"
         })
       });
-
+      if (!response.ok) throw new Error("Unable to create checkout session");
       const data = await response.json();
-
-      if (!response.ok || !data.url) {
-        throw new Error(data.error || "Unable to create Stripe checkout");
-      }
-
+      if (!data.url) throw new Error("Checkout URL missing");
       window.location.href = data.url;
     } catch (error) {
-      setPaymentError(error.message || "Unable to create Stripe checkout. Please try again or contact ACE MiDAS Training.");
+      setBookingError("Dynamic Stripe checkout needs the /api/create-checkout-session backend endpoint before live course payments can be taken.");
       setIsLoading(false);
     }
   }
 
-  return <main className="min-h-screen bg-slate-50 px-6 py-20"><div className="mx-auto max-w-5xl"><h2 className="text-center text-4xl font-bold md:text-6xl">Confirm your booking</h2><div className="mt-12 grid gap-6 lg:grid-cols-2"><div className="rounded-3xl border bg-white p-7 shadow-sm"><h3 className="text-2xl font-bold">{course.title}</h3><p className="mt-2 text-slate-500">{course.note}</p><label className="mt-6 block font-semibold">Number of delegates</label><input type="number" min="1" max={max} value={qty} onChange={(e)=>setQty(Math.max(1, Math.min(max, Number(e.target.value)||1)))} className="mt-2 w-full rounded-xl border p-3"/><p className="mt-2 text-xs text-slate-500">Max allowed: {max}</p><div className="mt-6 grid gap-3 sm:grid-cols-2"><button onClick={()=>setOutside(false)} className={`rounded-xl px-4 py-3 font-bold ${!outside ? "bg-emerald-600 text-white":"bg-slate-100"}`}>Inside A406</button><button onClick={()=>setOutside(true)} className={`rounded-xl px-4 py-3 font-bold ${outside ? "bg-red-600 text-white":"bg-slate-100"}`}>Outside A406</button></div></div><div className="rounded-3xl border bg-white p-7 shadow-sm"><h3 className="text-2xl font-bold">Price Breakdown</h3><div className="mt-6 space-y-4"><div className="flex justify-between"><span>Price per delegate</span><div className="text-right">{savingPerDelegate > 0 ? <p className="text-sm line-through text-slate-400">£{high}</p> : null}<b>£{unit}</b></div></div><div className="flex justify-between"><span>Discount tier</span><b>{discountTier} — {discountLabel}</b></div><div className="flex justify-between"><span>Delegates selected</span><b>{qty}</b></div><div className="flex justify-between"><span>Training subtotal</span><b>£{unit * qty}</b></div><div className="flex justify-between"><span>Travel fee</span><b>£{outside ? 75 : 0}</b></div><div className="flex justify-between border-t pt-4 text-2xl"><span>Estimated total</span><b className="text-emerald-600">£{total}</b></div>{savingPerDelegate > 0 ? <p className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">You’re saving £{savingPerDelegate * qty} on this booking.</p> : null}</div><div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-800"><strong>Locked quantity:</strong> Stripe will charge for exactly {qty} delegate{qty === 1 ? "" : "s"}. The customer will not need to change the quantity on the Stripe checkout page.</div></div></div><section className="mt-10 rounded-3xl border bg-white p-7 shadow-sm"><h3 className="text-2xl font-bold">Booking Agreement</h3><p className="mt-4 text-sm leading-7 text-slate-700">By selecting “Yes, I agree”, you confirm this booking forms a binding agreement. Payment confirms the booking. No refunds for non-attendance. Stripe will charge the exact number of delegates selected on this page.</p><div className="mt-6 grid gap-4 sm:grid-cols-2"><button onClick={()=>setAgree(true)} className={`rounded-xl p-4 font-bold ${agree ? "bg-emerald-600 text-white":"bg-emerald-100 text-emerald-800"}`}>Yes, I agree</button><button onClick={()=>setAgree(false)} className="rounded-xl bg-red-100 p-4 font-bold text-red-800">No, I do not agree</button></div>{paymentError ? <p className="mt-5 rounded-xl bg-red-50 p-4 text-sm text-red-700">{paymentError}</p> : null}<button disabled={!agree || isLoading} onClick={continueToPayment} className={`mt-6 w-full rounded-xl p-4 font-bold ${agree && !isLoading ? "bg-slate-950 text-white":"bg-slate-200 text-slate-400"}`}>{isLoading ? "Creating secure checkout..." : `Continue to Secure Payment — £${total}`}</button><button onClick={()=>setPage("Training")} className="mt-4 w-full rounded-xl border p-4 font-bold">Back to Training</button></section></div></main>;
-}
-
-function CompliancePage({ setPage }) {
   return (
-    <main className="min-h-screen bg-slate-50">
-      <section className="bg-slate-950 px-6 py-24 text-white">
-        <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-2">
-          <div>
-            <p className="font-semibold text-emerald-300">ACE Compliance Hub</p>
-            <h2 className="mt-3 text-4xl font-bold md:text-6xl">Digital compliance tools for passenger transport teams</h2>
-            <p className="mt-6 text-lg leading-8 text-slate-300">Give your organisation a clearer way to record journeys, medication, attendance, wheelchair checks and incidents in one place.</p>
-            <div className="mt-8 flex flex-col gap-4 sm:flex-row">
-              <a href={STRIPE_SUBSCRIPTION_URL} target="_blank" rel="noreferrer" className="rounded-xl bg-emerald-400 px-7 py-3 text-center font-bold text-slate-950">Subscribe for Access</a>
-              <button onClick={() => setPage("Contact")} className="rounded-xl border border-white/20 bg-white/5 px-7 py-3 font-bold text-white">Request Demo</button>
+    <div className="min-h-screen bg-slate-50 text-slate-950">
+      <Header setPage={setPage} />
+      <main className="px-6 py-20">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center max-w-3xl mx-auto">
+            <p className="text-emerald-600 font-semibold">Course Booking</p>
+            <h1 className="text-4xl md:text-6xl font-bold mt-3">Confirm your booking</h1>
+            <p className="mt-4 text-slate-600 leading-8">Choose delegates, review the price, accept the agreement and continue to secure payment.</p>
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-6 mt-12">
+            <div className="bg-white p-7 rounded-3xl border border-slate-200 shadow-sm">
+              <h2 className="font-bold text-2xl">Course Details</h2>
+              <p className="mt-4 text-xl font-bold">{course.title}</p>
+              <p className="text-sm text-slate-500 mt-1">{course.note}</p>
+              <div className="mt-6">
+                <label className="font-semibold">Number of delegates</label>
+                <input type="number" min="1" max={maxCap} value={quantity} onChange={(event) => setQuantity(Math.max(1, Math.min(maxCap, parseInt(event.target.value, 10) || 1)))} className="mt-2 w-full border border-slate-200 rounded-xl p-3" />
+                <p className="text-xs text-slate-500 mt-2">Maximum allowed for this course: {maxCap}</p>
+              </div>
+              <div className="mt-6">
+                <label className="font-semibold">Training location</label>
+                <div className="mt-2 grid sm:grid-cols-2 gap-3">
+                  <button type="button" onClick={() => setOutsideA406(false)} className={`px-4 py-3 rounded-xl font-bold ${!outsideA406 ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-700"}`}>Inside A406</button>
+                  <button type="button" onClick={() => setOutsideA406(true)} className={`px-4 py-3 rounded-xl font-bold ${outsideA406 ? "bg-red-600 text-white" : "bg-slate-100 text-slate-700"}`}>Outside A406</button>
+                </div>
+                {outsideA406 ? <p className="text-sm text-red-600 mt-2">Travel fee applied: £75</p> : null}
+              </div>
+            </div>
+
+            <div className="bg-white p-7 rounded-3xl border border-slate-200 shadow-sm">
+              <h2 className="font-bold text-2xl">Price Breakdown</h2>
+              <div className="mt-6 space-y-4">
+                <div className="flex justify-between"><span className="text-slate-600">Price per delegate</span><strong>£{unitPrice}</strong></div>
+                <div className="flex justify-between"><span className="text-slate-600">Delegates</span><strong>{quantity}</strong></div>
+                <div className="flex justify-between"><span className="text-slate-600">Subtotal</span><strong>£{subtotal}</strong></div>
+                <div className="flex justify-between"><span className="text-slate-600">Travel fee</span><strong>£{travelFee}</strong></div>
+                <div className="flex justify-between text-2xl border-t border-slate-100 pt-4"><span>Total</span><strong className="text-emerald-600">£{total}</strong></div>
+              </div>
+              <div className="mt-6 rounded-2xl bg-amber-50 border border-amber-100 p-4 text-sm text-amber-800 leading-6">Dynamic Stripe checkout requires a backend endpoint. This page calculates the correct total first.</div>
             </div>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {features.map((f) => <div key={f} className="rounded-2xl border border-white/10 bg-white/5 p-5 text-slate-200">✔ {f}</div>)}
+
+          <div className="mt-10 bg-white p-7 rounded-3xl border border-slate-200 shadow-sm">
+            <h2 className="text-2xl font-bold">Booking Agreement</h2>
+            <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-100 p-5 text-sm leading-7 text-slate-700">
+              <p>By selecting “Yes, I agree”, you confirm that you are authorised to book this training and that this booking forms a binding agreement between your organisation and ACE MiDAS Training.</p>
+              <p className="mt-3">You agree to pay the displayed total, including any certification, learner-pass, access or travel fees clearly shown above.</p>
+              <p className="mt-3 font-semibold text-slate-950">Payment confirms the booking. If delegates do not attend on the agreed training date, no refund will be issued for non-attendance.</p>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-4 mt-6">
+              <button type="button" onClick={() => setAgreement("yes")} className={`p-4 rounded-xl font-bold ${agreement === "yes" ? "bg-emerald-600 text-white" : "bg-emerald-100 text-emerald-800"}`}>Yes, I agree</button>
+              <button type="button" onClick={() => setAgreement("no")} className={`p-4 rounded-xl font-bold ${agreement === "no" ? "bg-red-600 text-white" : "bg-red-100 text-red-800"}`}>No, I do not agree</button>
+            </div>
+            {agreement === "no" ? <div className="mt-5 rounded-2xl bg-red-50 border border-red-100 p-4 text-sm text-red-700">You have not agreed to the booking terms. Payment cannot continue unless you agree.</div> : null}
+            {bookingError ? <p className="mt-5 text-sm text-red-600">{bookingError}</p> : null}
+            <button type="button" disabled={agreement !== "yes" || isLoading} onClick={proceedToPayment} className={`mt-6 w-full p-4 rounded-xl font-bold ${agreement === "yes" && !isLoading ? "bg-slate-950 text-white" : "bg-slate-200 text-slate-400 cursor-not-allowed"}`}>{isLoading ? "Creating secure checkout..." : "Continue to Secure Payment"}</button>
+            <button type="button" onClick={() => setPage("training")} className="mt-4 w-full rounded-2xl border border-slate-200 px-6 py-4 font-bold text-slate-700">Back to Training</button>
           </div>
         </div>
-      </section>
-      <section className="px-6 py-20">
-        <div className="mx-auto max-w-7xl">
-          <h3 className="text-3xl font-bold md:text-5xl">Why this matters</h3>
-          <div className="mt-10 grid gap-6 md:grid-cols-3">
-            {[
-              "Paper records can be lost, incomplete or difficult to audit.",
-              "Staff need a consistent way to evidence what happens on each journey.",
-              "Councils, schools and operators need proof of safe working practices."
-            ].map((text) => <div key={text} className="rounded-3xl border bg-white p-7 shadow-sm"><p className="text-slate-700">{text}</p></div>)}
+      </main>
+    </div>
+  );
+}
+
+function ComplianceSystemPage({ setPage }) {
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-950">
+      <Header setPage={setPage} />
+      <main>
+        <section className="bg-slate-950 text-white px-6 py-24">
+          <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
+            <div>
+              <p className="text-emerald-300 font-semibold">ACE Compliance Hub</p>
+              <h1 className="text-4xl md:text-6xl font-bold mt-3">Paid member access to your compliance platform</h1>
+              <p className="mt-6 text-lg leading-8 text-slate-300">A live digital system for journey reporting, medication logs, attendance, wheelchair safety checks and incident records.</p>
+              <div className="mt-8 flex flex-col sm:flex-row gap-4">
+                <a href={STRIPE_SUBSCRIPTION_URL} target="_blank" rel="noopener noreferrer" className="bg-emerald-400 text-slate-950 px-7 py-3 rounded-xl font-bold">Subscribe for Access</a>
+                <button type="button" onClick={() => setPage("contact")} className="border border-white/20 bg-white/5 text-white px-7 py-3 rounded-xl font-bold">Request Demo</button>
+              </div>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-4">{systemFeatures.map((feature) => <div key={feature} className="bg-white/5 border border-white/10 rounded-2xl p-5 text-slate-200"><Icon /> <span className="ml-2">{feature}</span></div>)}</div>
           </div>
-        </div>
-      </section>
-    </main>
+        </section>
+        <section className="px-6 py-20 bg-white">
+          <div className="max-w-7xl mx-auto grid md:grid-cols-3 gap-6">{painPoints.slice(0, 3).map((problem) => <div key={problem} className="bg-slate-50 rounded-3xl p-7 border border-slate-200"><h3 className="text-xl font-bold">Compliance risk</h3><p className="mt-3 text-slate-600">{problem}</p></div>)}</div>
+        </section>
+      </main>
+    </div>
   );
 }
 
 function PackagesPage({ setPage }) {
-  const packs = [
-    { title: "Essential Training", price: "Pay per course", text: "For organisations that need MiDAS, PATS or First Aid training only.", points: ["Course booking", "Certification support", "Group booking options"], cta: "Book Training" },
-    { title: "Compliance Bundle", price: "From £495/month", text: "Training plus paid access to ACE Compliance Hub for daily compliance tracking.", points: ["Member access", "Journey reporting", "Medication and incident records"], cta: "Subscribe for Access" },
-    { title: "Premium Compliance Partner", price: "From £1,200/month", text: "Full setup, onboarding and compliance support for larger operators.", points: ["Depot setup", "Staff onboarding", "Quarterly compliance review"], cta: "Request Demo" }
-  ];
   return (
-    <main className="min-h-screen bg-slate-50 px-6 py-20">
-      <div className="mx-auto max-w-7xl">
-        <div className="mx-auto max-w-3xl text-center">
-          <p className="font-semibold text-emerald-600">Packages</p>
-          <h2 className="mt-3 text-4xl font-bold md:text-6xl">Choose training only, SaaS access or full compliance support</h2>
-          <p className="mt-4 text-slate-600">Pick the level of service that fits your organisation.</p>
-        </div>
-        <div className="mt-12 grid gap-6 lg:grid-cols-3">
-          {packs.map((pack, index) => <div key={pack.title} className={`relative rounded-3xl border bg-white p-7 shadow-sm ${index === 1 ? "border-emerald-500 shadow-xl" : "border-slate-200"}`}>
-            {index === 1 && <div className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-full bg-emerald-400 px-4 py-1 text-sm font-bold text-slate-950">Best Seller</div>}
-            <h3 className="text-2xl font-bold">{pack.title}</h3>
-            <p className="mt-3 text-slate-600">{pack.text}</p>
-            <p className="mt-6 text-3xl font-bold text-emerald-600">{pack.price}</p>
-            <div className="mt-6 space-y-3">{pack.points.map((p) => <p key={p} className="text-sm text-slate-700">✔ {p}</p>)}</div>
-            {index === 1 ? <a href={STRIPE_SUBSCRIPTION_URL} target="_blank" rel="noreferrer" className="mt-8 block rounded-xl bg-slate-950 py-3 text-center font-bold text-white">{pack.cta}</a> : <button onClick={() => setPage(index === 0 ? "Training" : "Contact")} className="mt-8 w-full rounded-xl bg-slate-950 py-3 font-bold text-white">{pack.cta}</button>}
-          </div>)}
-        </div>
-      </div>
-    </main>
-  );
-}
-
-function ReviewsPage() {
-  const reviews = [
-    { rating: "★★★★★", name: "Transport Manager", org: "SEND Transport Provider", text: "The system gives us a clearer way to evidence what happens on each journey." },
-    { rating: "★★★★★", name: "School Operations Lead", org: "Academy Trust", text: "The training and compliance approach feels practical, organised and relevant." },
-    { rating: "★★★★★", name: "Compliance Lead", org: "Community Transport", text: "This would help us prepare records for audits and contract monitoring." }
-  ];
-  return (
-    <main className="min-h-screen bg-slate-50 px-6 py-20">
-      <div className="mx-auto max-w-7xl">
-        <div className="mx-auto max-w-3xl text-center">
-          <p className="font-semibold text-emerald-600">Reviews & Ratings</p>
-          <h2 className="mt-3 text-4xl font-bold md:text-6xl">Trusted by transport and education teams</h2>
-          <p className="mt-4 text-slate-600">Use this section for testimonials, case studies and feedback as your client base grows.</p>
-        </div>
-        <div className="mt-12 grid gap-6 md:grid-cols-3">
-          {reviews.map((r) => <div key={r.name} className="rounded-3xl border bg-white p-7 shadow-sm"><p className="text-xl text-amber-500">{r.rating}</p><p className="mt-4 text-slate-700">“{r.text}”</p><p className="mt-6 font-bold">{r.name}</p><p className="text-sm text-slate-500">{r.org}</p></div>)}
-        </div>
-      </div>
-    </main>
-  );
-}
-
-function BlogPage() {
-  const posts = [
-    { tag: "Compliance", title: "Why transport compliance needs more than paper records", text: "A practical look at why daily evidence matters for SEND transport providers." },
-    { tag: "Training", title: "MiDAS, PATS and digital compliance", text: "How training and digital records can work together to protect operators and passengers." },
-    { tag: "Contracts", title: "What councils may expect from transport providers", text: "How audit-ready records support stronger contract monitoring and operational accountability." }
-  ];
-  return (
-    <main className="min-h-screen bg-slate-50 px-6 py-20">
-      <div className="mx-auto max-w-7xl">
-        <p className="font-semibold text-emerald-600">Blog</p>
-        <h2 className="mt-3 max-w-4xl text-4xl font-bold md:text-6xl">Insights for passenger transport training and compliance</h2>
-        <p className="mt-4 max-w-3xl text-slate-600">Use the blog to build SEO, educate potential clients and show authority in SEND transport compliance.</p>
-        <div className="mt-12 grid gap-6 md:grid-cols-3">
-          {posts.map((post) => <article key={post.title} className="rounded-3xl border bg-white p-7 shadow-sm"><p className="text-sm font-semibold text-emerald-600">{post.tag}</p><h3 className="mt-3 text-2xl font-bold">{post.title}</h3><p className="mt-3 text-slate-600">{post.text}</p><button className="mt-6 font-bold text-emerald-700">Read article →</button></article>)}
-        </div>
-      </div>
-    </main>
-  );
-}
-function BookingConfirmationPage({ setPage }) {
-  const [form, setForm] = useState({
-    name: "",
-    organisation: "",
-    email: "",
-    phone: "",
-    course: "",
-    delegates: "",
-    location: "",
-    preferredDate1: "",
-    preferredDate2: "",
-    preferredDate3: "",
-    notes: ""
-  });
-  const [submitted, setSubmitted] = useState(false);
-  const [error, setError] = useState("");
-
-  function updateField(event) {
-    const { name, value } = event.target;
-    setForm((current) => ({ ...current, [name]: value }));
-  }
-
-  async function submitBookingDetails(event) {
-    event.preventDefault();
-    setError("");
-
-    try {
-      const response = await fetch(BOOKING_DETAILS_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          formType: "Post-payment training date selection",
-          ...form
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error("Unable to submit booking details");
-      }
-
-      const confirmationResponse = await fetch(BOOKING_CONFIRMATION_API, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form)
-      });
-
-      if (!confirmationResponse.ok) {
-        throw new Error("Booking details saved, but confirmation email failed");
-      }
-
-      setSubmitted(true);
-    } catch (err) {
-      setError("Your payment was received, but the confirmation process could not be completed. Please email info@ace-midas-training.co.uk with your preferred dates.");
-    }
-  }
-
-  return (
-    <main className="min-h-screen bg-slate-50 px-6 py-20">
-      <div className="mx-auto max-w-5xl">
-        <div className="rounded-3xl bg-emerald-500 p-8 text-center text-slate-950 shadow-sm">
-          <p className="font-semibold">Payment received</p>
-          <h2 className="mt-3 text-4xl font-bold md:text-6xl">Booking received ✅</h2>
-          <p className="mx-auto mt-4 max-w-3xl text-lg">Thank you. Your payment confirms your booking. Please now select your preferred training dates so we can confirm availability.</p>
-        </div>
-
-        <section className="mt-10 grid gap-6 lg:grid-cols-2">
-          <div className="rounded-3xl border bg-white p-7 shadow-sm">
-            <h3 className="text-2xl font-bold">What happens next?</h3>
-            <div className="mt-6 space-y-4 text-slate-700">
-              <p>✔ Submit your preferred dates using the form.</p>
-              <p>✔ We check trainer availability and confirm the final date.</p>
-              <p>✔ You receive confirmation and joining instructions.</p>
-              <p>✔ Please note: preferred dates are requested dates, not guaranteed until confirmed by ACE MiDAS Training.</p>
-            </div>
-            <div className="mt-6 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
-              Non-attendance is non-refundable once a confirmed training date has been agreed.
-            </div>
-          </div>
-
-          <div className="rounded-3xl border bg-white p-7 shadow-sm">
-            {submitted ? (
-              <div className="py-10 text-center">
-                <h3 className="text-2xl font-bold text-emerald-600">Preferred dates submitted ✅</h3>
-                <p className="mt-3 text-slate-600">We will review your request and contact you shortly. A booking summary email has also been sent to the customer email address provided.</p>
-                <button onClick={() => setPage("Home")} className="mt-6 rounded-xl bg-slate-950 px-6 py-3 font-bold text-white">Back to Home</button>
+    <div className="min-h-screen bg-slate-50 text-slate-950">
+      <Header setPage={setPage} />
+      <main className="px-6 py-20">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center max-w-3xl mx-auto"><p className="text-emerald-600 font-semibold">Packages</p><h1 className="text-4xl md:text-6xl font-bold mt-3">Training, SaaS access and premium compliance support</h1><p className="mt-4 text-slate-600 leading-8">Choose the level of support that matches your operation.</p></div>
+          <div className="grid lg:grid-cols-3 gap-6 mt-12">
+            {packages.map((pack, index) => (
+              <div key={pack.title} className={`bg-white border rounded-3xl p-7 shadow-sm relative ${index === 1 ? "border-emerald-500 shadow-xl" : "border-slate-200"}`}>
+                {index === 1 ? <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-emerald-400 text-slate-950 px-4 py-1 rounded-full text-sm font-bold">Best Seller</div> : null}
+                <h3 className="text-2xl font-bold">{pack.title}</h3><p className="text-slate-600 mt-3">{pack.text}</p><p className="text-3xl font-bold text-emerald-600 mt-6">{pack.price}</p>
+                <div className="mt-6 space-y-3">{pack.points.map((point) => <div key={point} className="text-sm text-slate-700"><Icon /> <span className="ml-2">{point}</span></div>)}</div>
+                {index === 1 ? <a href={STRIPE_SUBSCRIPTION_URL} target="_blank" rel="noopener noreferrer" className="block mt-8 w-full bg-slate-950 text-white py-3 rounded-xl font-bold text-center">{pack.cta}</a> : <button type="button" onClick={() => setPage("contact")} className="block mt-8 w-full bg-slate-950 text-white py-3 rounded-xl font-bold text-center">{pack.cta}</button>}
               </div>
-            ) : (
-              <form onSubmit={submitBookingDetails} className="grid gap-4">
-                <h3 className="text-2xl font-bold">Select preferred dates</h3>
-                {error ? <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <input name="name" value={form.name} onChange={updateField} className="rounded-xl border p-3" placeholder="Full name" required />
-                  <input name="organisation" value={form.organisation} onChange={updateField} className="rounded-xl border p-3" placeholder="Organisation" required />
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <input name="email" value={form.email} onChange={updateField} className="rounded-xl border p-3" placeholder="Email address" required />
-                  <input name="phone" value={form.phone} onChange={updateField} className="rounded-xl border p-3" placeholder="Phone number" />
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <select name="course" value={form.course} onChange={updateField} className="rounded-xl border p-3" required>
-                    <option value="">Course booked</option>
-                    {courses.map((item) => <option key={item.title}>{item.title}</option>)}
-                  </select>
-                  <input name="delegates" value={form.delegates} onChange={updateField} className="rounded-xl border p-3" placeholder="Number of delegates paid for" required />
-                </div>
-                <input name="location" value={form.location} onChange={updateField} className="rounded-xl border p-3" placeholder="Training address / location" required />
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <input type="date" name="preferredDate1" value={form.preferredDate1} onChange={updateField} className="rounded-xl border p-3" required />
-                  <input type="date" name="preferredDate2" value={form.preferredDate2} onChange={updateField} className="rounded-xl border p-3" />
-                  <input type="date" name="preferredDate3" value={form.preferredDate3} onChange={updateField} className="rounded-xl border p-3" />
-                </div>
-                <textarea name="notes" value={form.notes} onChange={updateField} className="rounded-xl border p-3" rows={4} placeholder="Any notes, access arrangements, parking details or preferred times." />
-                <button type="submit" className="rounded-xl bg-slate-950 p-4 font-bold text-white">Submit Booking Details</button>
-              </form>
-            )}
+            ))}
           </div>
-        </section>
-      </div>
-    </main>
+        </div>
+      </main>
+    </div>
   );
 }
 
-function Contact() { return <main className="min-h-screen bg-slate-50"><section className="bg-slate-950 px-6 py-24 text-white"><div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-2"><div><p className="font-semibold text-emerald-300">Contact ACE MiDAS Training</p><h2 className="mt-3 text-4xl font-bold md:text-6xl">We would love to hear from you</h2><p className="mt-6 text-lg text-slate-300">Tell us what you need and we’ll help with training, compliance support, group bookings or demo access.</p></div><div className="rounded-3xl bg-white/10 p-8 text-center"><div className="text-7xl">🤝</div><h3 className="mt-4 text-2xl font-bold">Partnership starts with a conversation</h3></div></div></section><section className="bg-emerald-500 px-6 py-20"><div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-2"><div><h2 className="text-4xl font-bold">Speak to us about your organisation</h2><div className="mt-8 rounded-3xl bg-slate-950 p-6 text-white"><p>Email: info@ace-midas-training.co.uk</p><p>Phone: 020 3633 4203 / 07570 988 597</p></div></div><form className="rounded-3xl bg-white p-7 shadow-xl"><h3 className="text-2xl font-bold">Lead Capture Form</h3><div className="mt-6 grid gap-4"><input className="rounded-xl border p-3" placeholder="Full name"/><input className="rounded-xl border p-3" placeholder="Organisation"/><input className="rounded-xl border p-3" placeholder="Email address"/><select className="rounded-xl border p-3"><option>What do you need?</option><option>MiDAS Training</option><option>PATS Training</option><option>ACE Compliance Hub Demo</option></select><textarea className="rounded-xl border p-3" rows={5} placeholder="Message"/><button type="button" className="rounded-xl bg-slate-950 p-3 font-bold text-white">Submit Enquiry</button></div></form></div></section></main>; }
+function ReviewsPage({ setPage }) {
+  const reviews = [
+    { name: "Transport Manager", org: "SEND Transport Provider", rating: "★★★★★", text: "The system gives us a much clearer way to evidence what happens on each journey." },
+    { name: "School Operations Lead", org: "Academy Trust", rating: "★★★★★", text: "The training and compliance approach feels practical, organised and relevant to daily transport operations." },
+    { name: "Compliance Lead", org: "Community Transport", rating: "★★★★★", text: "We can see how this would help us prepare records for audits and contract monitoring." }
+  ];
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-950"><Header setPage={setPage} /><main className="px-6 py-20"><div className="max-w-7xl mx-auto"><div className="text-center max-w-3xl mx-auto"><p className="text-emerald-600 font-semibold">Reviews & Ratings</p><h1 className="text-4xl md:text-6xl font-bold mt-3">Trusted by transport and education teams</h1><p className="mt-4 text-slate-600 leading-8">A dedicated section for client feedback, ratings and case studies.</p></div><div className="grid md:grid-cols-3 gap-6 mt-12">{reviews.map((review) => <div key={review.name} className="bg-white rounded-3xl p-7 shadow-sm border border-slate-200"><p className="text-amber-500 text-xl">{review.rating}</p><p className="mt-4 text-slate-700">“{review.text}”</p><p className="mt-6 font-bold">{review.name}</p><p className="text-sm text-slate-500">{review.org}</p></div>)}</div></div></main></div>
+  );
+}
 
-export default function AceMidasPreview() {
-  const [page, setPage] = useState("Home");
-  const [course, setCourse] = useState(null);
-  const onBook = (c) => { setCourse(c); setPage("Booking"); };
+function BlogPage({ setPage }) {
+  const posts = [
+    { title: "Why transport compliance needs more than paper records", tag: "Compliance", text: "A practical look at why daily evidence matters for SEND transport providers." },
+    { title: "MiDAS, PATS and the move toward digital compliance", tag: "Training", text: "How training and digital records can work together to protect operators and passengers." },
+    { title: "What councils may expect from transport providers", tag: "Contracts", text: "How audit-ready records support stronger contract monitoring and operational accountability." }
+  ];
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-950"><Header setPage={setPage} /><main className="px-6 py-20"><div className="max-w-7xl mx-auto"><div className="max-w-3xl"><p className="text-emerald-600 font-semibold">Blog</p><h1 className="text-4xl md:text-6xl font-bold mt-3">Insights for passenger transport training and compliance</h1><p className="mt-4 text-slate-600 leading-8">Use this section to build SEO, educate clients and position ACE MiDAS Training as a compliance authority.</p></div><div className="grid md:grid-cols-3 gap-6 mt-12">{posts.map((post) => <article key={post.title} className="bg-white rounded-3xl p-7 shadow-sm border border-slate-200"><p className="text-sm font-semibold text-emerald-600">{post.tag}</p><h2 className="text-2xl font-bold mt-3">{post.title}</h2><p className="mt-3 text-slate-600 leading-7">{post.text}</p><button className="mt-6 text-emerald-700 font-bold">Read article →</button></article>)}</div></div></main></div>
+  );
+}
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("payment") === "success" || params.get("success") === "true") {
-      setPage("BookingConfirmation");
-    }
-  }, []);
+function ContactPage({ setPage }) {
+  const [formData, setFormData] = useState({ name: "", org: "", email: "", phone: "", service: "", users: "", type: "", message: "" });
+  const [submitted, setSubmitted] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  function handleChange(event) { const { name, value } = event.target; setFormData((current) => ({ ...current, [name]: value })); }
+  async function handleSubmit(event) {
+    event.preventDefault(); setSubmitError("");
+    try {
+      const response = await fetch(FORMSPREE_ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formData) });
+      if (!response.ok) throw new Error("Form submission failed");
+      setSubmitted(true);
+    } catch (error) { setSubmitError("Something went wrong. Please email info@ace-midas-training.co.uk or try again later."); }
+  }
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-950"><Header setPage={setPage} /><main><section className="bg-slate-950 text-white px-6 py-24"><div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-12 items-center"><div><p className="text-emerald-300 font-semibold">Contact ACE MiDAS Training</p><h1 className="text-4xl md:text-6xl font-bold mt-3">We would love to hear from you</h1><p className="mt-6 text-lg leading-8 text-slate-300 max-w-2xl">Tell us what you need, and we’ll help you with training, compliance support, group bookings or ACE Compliance Hub access.</p></div><div className="rounded-3xl overflow-hidden shadow-2xl border border-white/10 bg-white/10"><div className="h-80 bg-gradient-to-br from-emerald-400 via-slate-200 to-slate-900 flex items-center justify-center text-center p-8"><div className="bg-white/90 rounded-3xl p-8 shadow-xl max-w-sm"><div className="text-6xl mb-4">🤝</div><h2 className="text-2xl font-bold text-slate-950">Partnership starts with a conversation</h2><p className="mt-3 text-slate-600">Use this space for your original handshake image when you add final assets.</p></div></div></div></div></section><section className="px-6 py-20 bg-emerald-500 text-slate-950"><div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-10 items-start"><div><p className="font-semibold">Prefer to contact directly?</p><h2 className="text-3xl md:text-5xl font-bold mt-3">Speak to us about your organisation</h2><p className="mt-4 text-lg max-w-2xl">We can help you decide whether you need training only, compliance system access, or a premium support package.</p><div className="mt-8 bg-slate-950 text-white rounded-3xl p-6"><h3 className="text-xl font-bold">Direct contact</h3><p className="mt-3 text-slate-300">Email: info@ace-midas-training.co.uk</p><p className="text-slate-300">Phone: 020 3633 4203 / 07570 988 597</p></div></div><div className="bg-white rounded-3xl p-7 shadow-xl border border-white/60">{submitted ? <div className="text-center py-10"><h3 className="text-2xl font-bold text-emerald-600">Enquiry Sent ✅</h3><p className="mt-3 text-slate-600">Thank you. We will contact you shortly.</p></div> : <><h3 className="text-2xl font-bold">Lead Capture Form</h3><p className="mt-2 text-slate-600 text-sm">Send your enquiry and we’ll get back to you.</p>{submitError ? <p className="mt-4 text-sm text-red-600">{submitError}</p> : null}<form onSubmit={handleSubmit} className="grid gap-4 mt-6"><div className="grid sm:grid-cols-2 gap-4"><input name="name" value={formData.name} onChange={handleChange} className="border border-slate-200 rounded-xl p-3" placeholder="Full name" required /><input name="org" value={formData.org} onChange={handleChange} className="border border-slate-200 rounded-xl p-3" placeholder="Organisation name" required /></div><div className="grid sm:grid-cols-2 gap-4"><input name="email" value={formData.email} onChange={handleChange} className="border border-slate-200 rounded-xl p-3" placeholder="Email address" required /><input name="phone" value={formData.phone} onChange={handleChange} className="border border-slate-200 rounded-xl p-3" placeholder="Phone number" /></div><select name="service" value={formData.service} onChange={handleChange} className="border border-slate-200 rounded-xl p-3 bg-white"><option value="">What do you need?</option><option>MiDAS Training</option><option>PATS Training</option><option>First Aid Training</option><option>Children’s Transport First Aid</option><option>ACE Compliance Hub Demo</option><option>Compliance Bundle</option><option>Premium Compliance Partner (Request Demo)</option></select><textarea name="message" value={formData.message} onChange={handleChange} className="border border-slate-200 rounded-xl p-3" rows={5} placeholder="Tell us what you need, preferred dates, location, and whether you want training only or SaaS compliance support." /><button type="submit" className="bg-slate-950 text-white px-7 py-3 rounded-xl font-bold">Submit Enquiry</button></form></>}</div></div></section></main></div>
+  );
+}
 
-  return <div><Header page={page} setPage={setPage}/>{page === "Home" && <Home setPage={setPage} onBook={onBook}/>} {page === "Training" && <Training onBook={onBook}/>} {page === "Booking" && <Booking course={course} setPage={setPage}/>} {page === "BookingConfirmation" && <BookingConfirmationPage setPage={setPage}/>} {page === "Compliance" && <CompliancePage setPage={setPage}/>} {page === "Packages" && <PackagesPage setPage={setPage}/>} {page === "Reviews" && <ReviewsPage/>} {page === "Blog" && <BlogPage/>} {page === "Contact" && <Contact/>}</div>;
+function LoginGatewayContent() {
+  return <div className="max-w-5xl mx-auto"><div className="text-center max-w-3xl mx-auto"><p className="text-emerald-600 font-semibold">ACE Compliance Hub Access</p><h2 className="text-4xl md:text-6xl font-bold mt-3">Member access</h2><p className="mt-4 text-slate-600 leading-8">SaaS members can log in after subscription approval. New customers should subscribe or request a demo first.</p></div><div className="grid md:grid-cols-2 gap-6 mt-12"><a href={STRIPE_SUBSCRIPTION_URL} target="_blank" rel="noopener noreferrer" className="bg-white rounded-3xl p-7 shadow-sm border border-slate-200 block"><h3 className="text-2xl font-bold">Subscribe for Access</h3><p className="mt-3 text-slate-600">Start a paid subscription before accessing ACE Compliance Hub.</p></a><a href={DEPOT_LOGIN_URL} target="_blank" rel="noopener noreferrer" className="bg-white rounded-3xl p-7 shadow-sm border border-slate-200 block"><h3 className="text-2xl font-bold">Member Login</h3><p className="mt-3 text-slate-600">For approved SaaS members and depot staff.</p></a></div></div>;
+}
+
+function LoginGatewayPage({ setPage }) {
+  return <div className="min-h-screen bg-slate-100 text-slate-950"><Header setPage={setPage} cta="Back to Website" ctaHref="#" /><main className="px-6 py-20"><LoginGatewayContent /></main></div>;
+}
+
+export const FOLLOW_UP_SCRIPTS = {
+  whatsappInitial: `Hi [Name], it was good speaking with you earlier, I appreciate your time.\n\nBased on what you mentioned, I genuinely think the system would help you tighten up your compliance and give you proper records if ever needed.\n\nI’ll send over the next steps shortly. If anything comes to mind in the meantime, feel free to message me 👍`,
+  emailSubject: `Next Steps – ACE Compliance Hub`,
+  emailBody: `Hi [Name],\n\nThank you for your time earlier. Based on what you shared, ACE Compliance Hub would help centralise journey, attendance and incident records, improve accountability, and provide audit-ready evidence.\n\nKind regards,\nMarvin`,
+  followUp24h: `Hi [Name], just checking in — did you get a chance to think about everything we discussed?\n\nHappy to answer any questions 👍`,
+  followUp3d: `Hi [Name], just wanted to follow up. Once companies implement this, it takes pressure off knowing everything is properly recorded.`,
+  followUp7d: `Hi [Name], I’ll leave it with you after this. If compliance becomes a priority, feel free to reach out anytime.`
+};
+
+function AdminFollowUpDashboard({ setPage }) {
+  const [copied, setCopied] = useState("");
+  const [leadName, setLeadName] = useState("");
+  const scripts = ["whatsappInitial", "emailBody", "followUp24h", "followUp3d", "followUp7d"];
+  function personalise(text) { return text.replaceAll("[Name]", leadName || "[Name]"); }
+  async function copyScript(key) { await navigator.clipboard.writeText(personalise(FOLLOW_UP_SCRIPTS[key])); setCopied(`${key} copied`); }
+  return <div className="min-h-screen bg-slate-100 text-slate-950"><Header setPage={setPage} /><main className="max-w-7xl mx-auto px-6 py-10"><h1 className="text-4xl font-bold">Sales Follow-up Scripts</h1>{copied ? <p className="mt-4 text-emerald-700 font-bold">{copied}</p> : null}<input value={leadName} onChange={(event) => setLeadName(event.target.value)} className="border border-slate-200 rounded-xl p-3 mt-6" placeholder="Lead name" /><div className="grid lg:grid-cols-2 gap-6 mt-8">{scripts.map((key) => <div key={key} className="bg-white border border-slate-200 rounded-3xl p-7"><h2 className="text-2xl font-bold">{key}</h2><pre className="mt-4 whitespace-pre-wrap bg-slate-50 rounded-2xl p-4 text-sm">{personalise(FOLLOW_UP_SCRIPTS[key])}</pre><button onClick={() => copyScript(key)} className="mt-4 bg-slate-950 text-white px-4 py-3 rounded-xl font-bold">Copy</button></div>)}</div></main></div>;
 }
