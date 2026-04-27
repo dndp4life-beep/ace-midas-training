@@ -52,13 +52,19 @@ const demoMembers = [
     email: "depot@example.com",
     organisation: "Demo Transport Provider",
     role: "Depot Manager",
-    portalUrl: "https://journeytracker.manus.space/depot-login"
+    access: {
+      officeDepotSite: "https://journeytracker.manus.space/depot-login",
+      roadStaffApp: "https://journeytracker.manus.space/journey-reporting"
+    }
   },
   {
     email: "roadstaff@example.com",
     organisation: "Demo Transport Provider",
     role: "Road Staff",
-    portalUrl: "https://journeytracker.manus.space/journey-reporting"
+    access: {
+      officeDepotSite: "https://journeytracker.manus.space/depot-login",
+      roadStaffApp: "https://journeytracker.manus.space/journey-reporting"
+    }
   }
 ];
 
@@ -682,9 +688,10 @@ function LoginPage({ setPage, setLoggedInMember }) {
       email,
       organisation: "Demo Member Organisation",
       role: email.toLowerCase().includes("road") ? "Road Staff" : "Depot Manager",
-      portalUrl: email.toLowerCase().includes("road")
-        ? "https://journeytracker.manus.space/journey-reporting"
-        : "https://journeytracker.manus.space/depot-login"
+      access: {
+        officeDepotSite: "https://journeytracker.manus.space/depot-login",
+        roadStaffApp: "https://journeytracker.manus.space/journey-reporting"
+      }
     };
 
     setPendingMember(matchedMember || fallbackMember);
@@ -747,6 +754,8 @@ function LoginPage({ setPage, setLoggedInMember }) {
 }
 
 function MemberDashboardPage({ member, setPage }) {
+  const [copied, setCopied] = useState("");
+
   if (!member) {
     return (
       <main className="min-h-screen bg-slate-50 px-6 py-20 text-center">
@@ -754,6 +763,28 @@ function MemberDashboardPage({ member, setPage }) {
         <button type="button" onClick={() => setPage("Login")} className="mt-8 rounded-xl bg-slate-950 px-6 py-3 font-bold text-white">Go to Login</button>
       </main>
     );
+  }
+
+  const accessLinks = [
+    {
+      title: "Office / Depot / Site Login",
+      description: "For depot managers, site administrators and office staff who need to monitor journeys, users and compliance records.",
+      url: member.access?.officeDepotSite || "https://journeytracker.manus.space/depot-login"
+    },
+    {
+      title: "Road Staff App",
+      description: "For drivers, passenger assistants and road staff who need to submit journey reports and live operational records.",
+      url: member.access?.roadStaffApp || "https://journeytracker.manus.space/journey-reporting"
+    }
+  ];
+
+  async function copyLink(label, url) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(`${label} copied`);
+    } catch (error) {
+      setCopied("Could not copy link. Please open it and copy from the browser.");
+    }
   }
 
   return (
@@ -765,20 +796,35 @@ function MemberDashboardPage({ member, setPage }) {
           <p className="mt-4 text-slate-300">Signed in as: {member.role}</p>
         </div>
 
+        {copied ? <p className="mt-6 rounded-xl bg-emerald-50 p-4 text-sm font-semibold text-emerald-700">{copied}</p> : null}
+
+        <div className="mt-10 grid gap-6 lg:grid-cols-2">
+          {accessLinks.map((link) => (
+            <div key={link.title} className="rounded-3xl border bg-white p-7 shadow-sm">
+              <h2 className="text-2xl font-bold">{link.title}</h2>
+              <p className="mt-3 text-slate-600">{link.description}</p>
+              <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm break-all text-slate-600">{link.url}</div>
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                <a href={link.url} target="_blank" rel="noreferrer" className="rounded-xl bg-emerald-600 p-4 text-center font-black text-white">Open</a>
+                <button type="button" onClick={() => copyLink(link.title, link.url)} className="rounded-xl border border-slate-200 p-4 font-bold text-slate-700">Copy URL</button>
+              </div>
+            </div>
+          ))}
+        </div>
+
         <div className="mt-10 grid gap-6 lg:grid-cols-3">
           <div className="rounded-3xl border bg-white p-7 shadow-sm">
-            <h2 className="text-2xl font-bold">Your portal access</h2>
-            <p className="mt-3 text-slate-600">Open the compliance app assigned to this organisation and role.</p>
-            <a href={member.portalUrl} target="_blank" rel="noreferrer" className="mt-6 block rounded-xl bg-emerald-600 p-4 text-center font-black text-white">Open Compliance Portal</a>
+            <h2 className="text-2xl font-bold">Customer-specific access</h2>
+            <p className="mt-3 text-slate-600">Each member can later be assigned their own portal URLs, custom subdomain or dedicated app workspace.</p>
           </div>
 
           <div className="rounded-3xl border bg-white p-7 shadow-sm">
             <h2 className="text-2xl font-bold">Security status</h2>
             <div className="mt-4 space-y-3 text-slate-700">
-              <p>✔ Two-step verification enabled</p>
+              <p>✔ Two-step verification demo enabled</p>
               <p>✔ Organisation access assigned</p>
-              <p>✔ Role-based portal route</p>
-              <p>⚠ Device/IP logs require backend auth</p>
+              <p>✔ Role-based access options</p>
+              <p>⚠ Real device/IP logs require backend auth</p>
             </div>
           </div>
 
