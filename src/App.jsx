@@ -51,20 +51,11 @@ const demoMembers = [
   {
     email: "depot@example.com",
     organisation: "Demo Transport Provider",
-    role: "Depot Manager",
+    role: "Depot / Site Manager",
     access: {
-      officeDepotSite: "https://journeytracker.manus.space/depot-login",
-      roadStaffApp: "https://journeytracker.manus.space/journey-reporting"
-    }
-  },
-  {
-    email: "roadstaff@example.com",
-    organisation: "Demo Transport Provider",
-    role: "Road Staff",
-    access: {
-      officeDepotSite: "https://journeytracker.manus.space/depot-login",
-      roadStaffApp: "https://journeytracker.manus.space/journey-reporting"
-    }
+      depotSiteLogin: "https://journeytracker.manus.space/login?token=demoabc123xyz789"
+    },
+    onboardingStatus: "Setup required"
   }
 ];
 
@@ -687,11 +678,11 @@ function LoginPage({ setPage, setLoggedInMember }) {
     const fallbackMember = {
       email,
       organisation: "Demo Member Organisation",
-      role: email.toLowerCase().includes("road") ? "Road Staff" : "Depot Manager",
+      role: "Depot / Site Manager",
       access: {
-        officeDepotSite: "https://journeytracker.manus.space/depot-login",
-        roadStaffApp: "https://journeytracker.manus.space/journey-reporting"
-      }
+        depotSiteLogin: "https://journeytracker.manus.space/login?token=demoabc123xyz789"
+      },
+      onboardingStatus: "Setup required"
     };
 
     setPendingMember(matchedMember || fallbackMember);
@@ -765,23 +756,12 @@ function MemberDashboardPage({ member, setPage }) {
     );
   }
 
-  const accessLinks = [
-    {
-      title: "Office / Depot / Site Login",
-      description: "For depot managers, site administrators and office staff who need to monitor journeys, users and compliance records.",
-      url: member.access?.officeDepotSite || "https://journeytracker.manus.space/depot-login"
-    },
-    {
-      title: "Road Staff App",
-      description: "For drivers, passenger assistants and road staff who need to submit journey reports and live operational records.",
-      url: member.access?.roadStaffApp || "https://journeytracker.manus.space/journey-reporting"
-    }
-  ];
+  const depotLoginUrl = member.access?.depotSiteLogin || "https://journeytracker.manus.space/login?token=demoabc123xyz789";
 
-  async function copyLink(label, url) {
+  async function copyLink(url) {
     try {
       await navigator.clipboard.writeText(url);
-      setCopied(`${label} copied`);
+      setCopied("Depot / Site Login URL copied");
     } catch (error) {
       setCopied("Could not copy link. Please open it and copy from the browser.");
     }
@@ -798,41 +778,137 @@ function MemberDashboardPage({ member, setPage }) {
 
         {copied ? <p className="mt-6 rounded-xl bg-emerald-50 p-4 text-sm font-semibold text-emerald-700">{copied}</p> : null}
 
-        <div className="mt-10 grid gap-6 lg:grid-cols-2">
-          {accessLinks.map((link) => (
-            <div key={link.title} className="rounded-3xl border bg-white p-7 shadow-sm">
-              <h2 className="text-2xl font-bold">{link.title}</h2>
-              <p className="mt-3 text-slate-600">{link.description}</p>
-              <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm break-all text-slate-600">{link.url}</div>
-              <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                <a href={link.url} target="_blank" rel="noreferrer" className="rounded-xl bg-emerald-600 p-4 text-center font-black text-white">Open</a>
-                <button type="button" onClick={() => copyLink(link.title, link.url)} className="rounded-xl border border-slate-200 p-4 font-bold text-slate-700">Copy URL</button>
-              </div>
+        <div className="mt-10 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="rounded-3xl border bg-white p-7 shadow-sm">
+            <p className="font-semibold text-emerald-700">Depot / Site Access</p>
+            <h2 className="mt-2 text-3xl font-black">Private token login URL</h2>
+            <p className="mt-3 leading-7 text-slate-600">
+              This private link is issued to the depot/site after setup. It uses a unique token so the URL does not reveal the depot name and can be revoked or regenerated when needed.
+            </p>
+            <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm break-all text-slate-600">{depotLoginUrl}</div>
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <a href={depotLoginUrl} target="_blank" rel="noreferrer" className="rounded-xl bg-emerald-600 p-4 text-center font-black text-white">Open Depot / Site Login</a>
+              <button type="button" onClick={() => copyLink(depotLoginUrl)} className="rounded-xl border border-slate-200 p-4 font-bold text-slate-700">Copy Login URL</button>
             </div>
-          ))}
+          </div>
+
+          <div className="rounded-3xl border bg-white p-7 shadow-sm">
+            <p className="font-semibold text-amber-700">Onboarding Status</p>
+            <h2 className="mt-2 text-3xl font-black">{member.onboardingStatus || "Setup required"}</h2>
+            <div className="mt-5 space-y-3 text-slate-700">
+              <p>✔ Subscription/member access created</p>
+              <p>✔ Depot/site login token prepared</p>
+              <p>⚠ Depot requirements still need confirming</p>
+              <p>⚠ Road staff app isolation handled inside Manus</p>
+            </div>
+            <button type="button" onClick={() => setPage("Onboarding")} className="mt-6 w-full rounded-xl bg-slate-950 p-4 font-black text-white">Complete Onboarding</button>
+          </div>
         </div>
 
         <div className="mt-10 grid gap-6 lg:grid-cols-3">
           <div className="rounded-3xl border bg-white p-7 shadow-sm">
-            <h2 className="text-2xl font-bold">Customer-specific access</h2>
-            <p className="mt-3 text-slate-600">Each member can later be assigned their own portal URLs, custom subdomain or dedicated app workspace.</p>
+            <h2 className="text-2xl font-bold">Token-based security</h2>
+            <p className="mt-3 text-slate-600">Each depot/site gets a private random token URL. Tokens can be revoked and regenerated by the super admin.</p>
           </div>
 
           <div className="rounded-3xl border bg-white p-7 shadow-sm">
-            <h2 className="text-2xl font-bold">Security status</h2>
-            <div className="mt-4 space-y-3 text-slate-700">
-              <p>✔ Two-step verification demo enabled</p>
-              <p>✔ Organisation access assigned</p>
-              <p>✔ Role-based access options</p>
-              <p>⚠ Real device/IP logs require backend auth</p>
-            </div>
+            <h2 className="text-2xl font-bold">Customer separation</h2>
+            <p className="mt-3 text-slate-600">The Manus app should tie each session to the token so users only see their depot/site data.</p>
           </div>
 
           <div className="rounded-3xl border bg-white p-7 shadow-sm">
             <h2 className="text-2xl font-bold">Need changes?</h2>
-            <p className="mt-3 text-slate-600">Request new users, depot changes, extra roles or portal setup support.</p>
+            <p className="mt-3 text-slate-600">Request a new token, extra depot/site login, or onboarding support.</p>
             <button type="button" onClick={() => setPage("Contact")} className="mt-6 w-full rounded-xl bg-slate-950 p-4 font-bold text-white">Request Support</button>
           </div>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function OnboardingPage({ setPage }) {
+  const [form, setForm] = useState({
+    organisation: "",
+    mainContact: "",
+    email: "",
+    phone: "",
+    depotCount: "",
+    depotNames: "",
+    staffCount: "",
+    modules: "",
+    notes: ""
+  });
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState("");
+
+  function updateField(event) {
+    const { name, value } = event.target;
+    setForm((current) => ({ ...current, [name]: value }));
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setError("");
+
+    try {
+      const response = await fetch(BOOKING_DETAILS_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ formType: "ACE Compliance Hub onboarding", ...form })
+      });
+      if (!response.ok) throw new Error("Unable to submit onboarding form");
+      setSubmitted(true);
+    } catch (err) {
+      setError("Something went wrong. Please email info@ace-midas-training.co.uk with your onboarding details.");
+    }
+  }
+
+  return (
+    <main className="min-h-screen bg-slate-50 px-6 py-20">
+      <div className="mx-auto max-w-5xl">
+        <div className="rounded-[2rem] bg-slate-950 p-8 text-white shadow-xl">
+          <p className="font-semibold text-emerald-300">Compliance Hub Onboarding</p>
+          <h1 className="mt-3 text-4xl font-black md:text-6xl">Tell us how your depot/site needs to be set up.</h1>
+          <p className="mt-4 max-w-3xl text-slate-300">This helps us configure your private depot/site login token, required modules and customer-specific setup.</p>
+        </div>
+
+        <div className="mt-10 rounded-3xl border bg-white p-7 shadow-sm">
+          {submitted ? (
+            <div className="py-10 text-center">
+              <h2 className="text-3xl font-black text-emerald-600">Onboarding details submitted ✅</h2>
+              <p className="mt-3 text-slate-600">We will review your setup requirements and contact you shortly.</p>
+              <button type="button" onClick={() => setPage("MemberDashboard")} className="mt-6 rounded-xl bg-slate-950 px-6 py-3 font-bold text-white">Back to Dashboard</button>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="grid gap-4">
+              <h2 className="text-2xl font-bold">Onboarding Form</h2>
+              {error ? <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <input name="organisation" value={form.organisation} onChange={updateField} className="rounded-xl border p-3" placeholder="Organisation name" required />
+                <input name="mainContact" value={form.mainContact} onChange={updateField} className="rounded-xl border p-3" placeholder="Main contact name" required />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <input name="email" value={form.email} onChange={updateField} className="rounded-xl border p-3" placeholder="Email address" required />
+                <input name="phone" value={form.phone} onChange={updateField} className="rounded-xl border p-3" placeholder="Phone number" />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <input name="depotCount" value={form.depotCount} onChange={updateField} className="rounded-xl border p-3" placeholder="How many depots/sites?" required />
+                <input name="staffCount" value={form.staffCount} onChange={updateField} className="rounded-xl border p-3" placeholder="Approx. number of users/staff" />
+              </div>
+              <textarea name="depotNames" value={form.depotNames} onChange={updateField} className="rounded-xl border p-3" rows={3} placeholder="Depot/site names or locations" />
+              <select name="modules" value={form.modules} onChange={updateField} className="rounded-xl border p-3" required>
+                <option value="">Which modules do you need?</option>
+                <option>Journey reporting only</option>
+                <option>Journey reporting + attendance</option>
+                <option>Journey reporting + medication</option>
+                <option>Journey, attendance, medication, wheelchair checks and incidents</option>
+                <option>Not sure yet — advise me</option>
+              </select>
+              <textarea name="notes" value={form.notes} onChange={updateField} className="rounded-xl border p-3" rows={5} placeholder="Any setup notes, access requirements, route types, or special instructions." />
+              <button type="submit" className="rounded-xl bg-emerald-600 p-4 font-black text-white">Submit Onboarding Details</button>
+            </form>
+          )}
         </div>
       </div>
     </main>
@@ -991,6 +1067,7 @@ export default function App() {
       {page === "Membership" && <MembershipPage setPage={setPage} />}
       {page === "Login" && <LoginPage setPage={setPage} setLoggedInMember={setLoggedInMember} />}
       {page === "MemberDashboard" && <MemberDashboardPage member={loggedInMember} setPage={setPage} />}
+      {page === "Onboarding" && <OnboardingPage setPage={setPage} />}
       {page === "Reviews" && <ReviewsPage />}
       {page === "Blog" && <BlogPage />}
       {page === "Contact" && <ContactPage />}
