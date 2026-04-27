@@ -9,12 +9,12 @@ import React, { useState } from "react";
 // /images/interior-training.jpg
 
 const images = {
-  logoHorizontal: "/images/ace-logo-horizontal.jpg",
-  logoRound: "/images/ace-logo-round.png",
-  minibusHero: "/images/minibus-hero.jpg",
-  vehicleLineup: "/images/vehicle-lineup.jpg",
-  firstAid: "/images/first-aid-training.png",
-  interior: "/images/interior-training.jpg"
+  logoHorizontal: "/images/Logo-horizontal.jpg",
+  logoRound: "/images/Logo-round.png",
+  minibusHero: "/images/Bus-a.jpg",
+  vehicleLineup: "/images/Header-pic-a.jpg",
+  firstAid: "/images/First-Aid.png",
+  interior: "/images/Inside-a.jpg"
 };
 
 const courses = [
