@@ -47,6 +47,21 @@ const stats = [
   ["Compliance", "Digital tracking support"]
 ];
 
+const demoMembers = [
+  {
+    email: "depot@example.com",
+    organisation: "Demo Transport Provider",
+    role: "Depot Manager",
+    portalUrl: "https://journeytracker.manus.space/depot-login"
+  },
+  {
+    email: "roadstaff@example.com",
+    organisation: "Demo Transport Provider",
+    role: "Road Staff",
+    portalUrl: "https://journeytracker.manus.space/journey-reporting"
+  }
+];
+
 function Header({ page, setPage }) {
   const nav = ["Home", "Training", "Compliance", "Reviews", "Blog", "Contact"];
 
@@ -69,7 +84,7 @@ function Header({ page, setPage }) {
           ))}
         </nav>
 
-        <button type="button" onClick={() => setPage("Membership")} className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white shadow-sm">
+        <button type="button" onClick={() => setPage("Login")} className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white shadow-sm">
           Member Login
         </button>
       </div>
@@ -597,8 +612,8 @@ function MembershipPage({ setPage }) {
               <a href={STRIPE_SUBSCRIPTION_URL} target="_blank" rel="noreferrer" className="rounded-xl bg-emerald-400 px-7 py-4 text-center font-bold text-slate-950">
                 Subscribe for Access
               </a>
-              <button type="button" onClick={() => setPage("Contact")} className="rounded-xl border border-white/20 bg-white/10 px-7 py-4 font-bold text-white">
-                Request Setup Call
+              <button type="button" onClick={() => setPage("Login")} className="rounded-xl border border-white/20 bg-white/10 px-7 py-4 font-bold text-white">
+                Existing Member Login
               </button>
             </div>
           </div>
@@ -641,6 +656,139 @@ function MembershipPage({ setPage }) {
           </div>
         </div>
       </section>
+    </main>
+  );
+}
+
+function LoginPage({ setPage, setLoggedInMember }) {
+  const [step, setStep] = useState("credentials");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [pendingMember, setPendingMember] = useState(null);
+
+  function handleCredentials(event) {
+    event.preventDefault();
+    setError("");
+
+    if (!email.includes("@") || password.length < 6) {
+      setError("Please enter a valid email address and a password of at least 6 characters.");
+      return;
+    }
+
+    const matchedMember = demoMembers.find((item) => item.email.toLowerCase() === email.toLowerCase());
+    const fallbackMember = {
+      email,
+      organisation: "Demo Member Organisation",
+      role: email.toLowerCase().includes("road") ? "Road Staff" : "Depot Manager",
+      portalUrl: email.toLowerCase().includes("road")
+        ? "https://journeytracker.manus.space/journey-reporting"
+        : "https://journeytracker.manus.space/depot-login"
+    };
+
+    setPendingMember(matchedMember || fallbackMember);
+    setStep("verification");
+  }
+
+  function handleVerification(event) {
+    event.preventDefault();
+    setError("");
+
+    if (code !== "123456") {
+      setError("Demo verification code is 123456. In production this would be sent by email or SMS.");
+      return;
+    }
+
+    setLoggedInMember(pendingMember);
+    setPage("MemberDashboard");
+  }
+
+  return (
+    <main className="min-h-screen bg-slate-50 px-6 py-20">
+      <div className="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+        <div>
+          <p className="font-semibold text-emerald-700">Secure Member Login</p>
+          <h1 className="mt-3 text-4xl font-black tracking-tight md:text-6xl">Access your organisation’s compliance portal.</h1>
+          <p className="mt-5 leading-8 text-slate-600">
+            Members should only access the system through a secure login. Each organisation can be given its own roles, app links and access permissions.
+          </p>
+
+          <div className="mt-8 rounded-3xl border border-amber-200 bg-amber-50 p-6 text-sm leading-7 text-amber-900">
+            <strong>Demo mode:</strong> This front-end login proves the customer journey. For live security, connect Supabase or Clerk so passwords, sessions, 2FA, roles and access logs are handled safely.
+          </div>
+        </div>
+
+        <div className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-xl">
+          {step === "credentials" ? (
+            <form onSubmit={handleCredentials} className="grid gap-4">
+              <h2 className="text-3xl font-black">Member Login</h2>
+              <p className="text-sm text-slate-500">Enter your member credentials to continue.</p>
+              {error ? <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
+              <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} className="rounded-xl border p-4" placeholder="Email address" required />
+              <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="rounded-xl border p-4" placeholder="Password" required />
+              <button type="submit" className="rounded-xl bg-slate-950 p-4 font-black text-white">Continue</button>
+              <button type="button" onClick={() => setPage("Membership")} className="rounded-xl border p-4 font-bold text-slate-700">Need access? View Membership</button>
+            </form>
+          ) : (
+            <form onSubmit={handleVerification} className="grid gap-4">
+              <h2 className="text-3xl font-black">Two-step verification</h2>
+              <p className="text-sm text-slate-500">Enter the verification code sent to your registered email or phone.</p>
+              {error ? <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
+              <input value={code} onChange={(event) => setCode(event.target.value)} className="rounded-xl border p-4 text-center text-2xl tracking-[0.4em]" placeholder="123456" maxLength={6} required />
+              <button type="submit" className="rounded-xl bg-emerald-600 p-4 font-black text-white">Verify & Enter Portal</button>
+              <button type="button" onClick={() => setStep("credentials")} className="rounded-xl border p-4 font-bold text-slate-700">Back</button>
+            </form>
+          )}
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function MemberDashboardPage({ member, setPage }) {
+  if (!member) {
+    return (
+      <main className="min-h-screen bg-slate-50 px-6 py-20 text-center">
+        <h1 className="text-4xl font-bold">Login required</h1>
+        <button type="button" onClick={() => setPage("Login")} className="mt-8 rounded-xl bg-slate-950 px-6 py-3 font-bold text-white">Go to Login</button>
+      </main>
+    );
+  }
+
+  return (
+    <main className="min-h-screen bg-slate-50 px-6 py-20">
+      <div className="mx-auto max-w-7xl">
+        <div className="rounded-[2rem] bg-slate-950 p-8 text-white shadow-xl">
+          <p className="font-semibold text-emerald-300">Member Dashboard</p>
+          <h1 className="mt-3 text-4xl font-black md:text-6xl">Welcome, {member.organisation}</h1>
+          <p className="mt-4 text-slate-300">Signed in as: {member.role}</p>
+        </div>
+
+        <div className="mt-10 grid gap-6 lg:grid-cols-3">
+          <div className="rounded-3xl border bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-bold">Your portal access</h2>
+            <p className="mt-3 text-slate-600">Open the compliance app assigned to this organisation and role.</p>
+            <a href={member.portalUrl} target="_blank" rel="noreferrer" className="mt-6 block rounded-xl bg-emerald-600 p-4 text-center font-black text-white">Open Compliance Portal</a>
+          </div>
+
+          <div className="rounded-3xl border bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-bold">Security status</h2>
+            <div className="mt-4 space-y-3 text-slate-700">
+              <p>✔ Two-step verification enabled</p>
+              <p>✔ Organisation access assigned</p>
+              <p>✔ Role-based portal route</p>
+              <p>⚠ Device/IP logs require backend auth</p>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-bold">Need changes?</h2>
+            <p className="mt-3 text-slate-600">Request new users, depot changes, extra roles or portal setup support.</p>
+            <button type="button" onClick={() => setPage("Contact")} className="mt-6 w-full rounded-xl bg-slate-950 p-4 font-bold text-white">Request Support</button>
+          </div>
+        </div>
+      </div>
     </main>
   );
 }
@@ -772,6 +920,7 @@ function ContactPage() {
 export default function App() {
   const [page, setPage] = useState("Home");
   const [selectedCourse, setSelectedCourse] = useState(null);
+  const [loggedInMember, setLoggedInMember] = useState(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -794,6 +943,8 @@ export default function App() {
       {page === "BookingConfirmation" && <BookingConfirmationPage setPage={setPage} />}
       {page === "Compliance" && <CompliancePage setPage={setPage} />}
       {page === "Membership" && <MembershipPage setPage={setPage} />}
+      {page === "Login" && <LoginPage setPage={setPage} setLoggedInMember={setLoggedInMember} />}
+      {page === "MemberDashboard" && <MemberDashboardPage member={loggedInMember} setPage={setPage} />}
       {page === "Reviews" && <ReviewsPage />}
       {page === "Blog" && <BlogPage />}
       {page === "Contact" && <ContactPage />}
