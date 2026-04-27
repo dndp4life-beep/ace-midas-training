@@ -7,13 +7,13 @@ const BOOKING_DETAILS_ENDPOINT = "https://formspree.io/f/mykloeon";
 const BOOKING_CONFIRMATION_API = "/api/send-booking-confirmation";
 
 const images = {
-  logoHorizontal: "/images/Logo-horizontal.jpg",
-  logoRound: "/images/Logo-round.png",
-  minibusHero: "/images/Bus-a.jpg",
-  vehicleLineup: "/images/Header-pic-a.jpg",
-  firstAid: "/images/First-Aid.png",
-  interior: "/images/Inside-a.jpg",
-  handshake: "/images/Hand-Shake.png"
+  logoHorizontal: "/images/logohorizontal.jpg",
+  logoRound: "/images/logoround.png",
+  minibusHero: "/images/headerpica.jpg",
+  vehicleLineup: "/images/headerpicb.jpg",
+  firstAid: "/images/firstaid.png",
+  interior: "/images/insidea.jpg",
+  handshake: "/images/handshake.png"
 };
 
 const trainingCourses = [
