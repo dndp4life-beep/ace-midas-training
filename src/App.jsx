@@ -59,21 +59,33 @@ const demoMembers = [
   }
 ];
 
-function Header({ page, setPage }) {
+const initialAdminReviews = [
+  { rating: "★★★★★", name: "Transport Manager", org: "SEND Transport Provider", text: "The system gives us a clearer way to evidence what happens on each journey.", status: "Published" },
+  { rating: "★★★★★", name: "School Operations Lead", org: "Academy Trust", text: "The training and compliance approach feels practical, organised and relevant.", status: "Published" },
+  { rating: "★★★★★", name: "Compliance Lead", org: "Community Transport", text: "This would help us prepare records for audits and contract monitoring.", status: "Draft" }
+];
+
+const initialBlogPosts = [
+  { tag: "Compliance", title: "Why transport compliance needs more than paper records", text: "A practical look at why daily evidence matters for SEND transport providers.", status: "Published" },
+  { tag: "Training", title: "MiDAS, PATS and digital compliance", text: "How training and digital records work together to protect operators and passengers.", status: "Draft" },
+  { tag: "Contracts", title: "What councils may expect from transport providers", text: "How audit-ready records support stronger contract monitoring and accountability.", status: "Draft" }
+];
+
+function Header({ page, setPage, openBackOffice }) {
   const nav = ["Home", "Training", "Compliance", "Reviews", "Blog", "Contact"];
 
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
         <button type="button" onClick={() => setPage("Home")} className="flex items-center gap-3 text-left">
-          <img src={images.logoRound} alt="ACE MiDAS Training logo" className="h-12 w-12 rounded-full object-contain" />
+          <img onDoubleClick={openBackOffice} src={images.logoRound} alt="ACE MiDAS Training logo" className="h-12 w-12 rounded-full object-contain" title="ACE MiDAS Training" />
           <div>
             <p className="text-lg font-bold leading-tight text-slate-950">ACE MiDAS Training</p>
             <p className="text-xs text-slate-500">Training • Compliance • Passenger Transport</p>
           </div>
         </button>
 
-        <nav className="hidden items-center gap-6 text-sm font-medium text-slate-600 md:flex">
+        
           {nav.map((item) => (
             <button key={item} type="button" onClick={() => setPage(item)} className={page === item ? "text-emerald-600" : "hover:text-emerald-600"}>
               {item}
@@ -657,6 +669,55 @@ function MembershipPage({ setPage }) {
   );
 }
 
+function PrivacyPage({ setPage }) {
+  return (
+    <main className="min-h-screen bg-slate-50 px-6 py-20">
+      <div className="mx-auto max-w-4xl">
+        <div className="flex items-center gap-4 mb-6">
+          <img src={images.logoRound} alt="logo" className="h-12 w-12 rounded-full" />
+          <h1 className="text-4xl font-black">Privacy Policy</h1>
+        </div>
+
+        <p className="text-sm text-slate-500">Last updated: {new Date().getFullYear()}</p>
+
+        <div className="mt-8 space-y-6 text-slate-700 leading-7">
+          <p><strong>Who we are:</strong> Ace MiDAS Training provides passenger transport training and compliance solutions.</p>
+          <p><strong>Data we collect:</strong> Contact details, booking information, training records, login data and compliance records.</p>
+          <p><strong>How we use data:</strong> To deliver training, manage bookings, provide access to systems and improve services.</p>
+          <p><strong>Payments:</strong> Payments are processed securely via Stripe. We do not store card details.</p>
+          <p><strong>Compliance platform:</strong> Organisations remain the data controller. We act as the data processor.</p>
+          <p><strong>Data sharing:</strong> We only share data with required providers (Stripe, form systems). We never sell data.</p>
+          <p><strong>Your rights:</strong> You can request access, correction or deletion at info@ace-midas-training.co.uk</p>
+          <p><strong>Cookies:</strong> We use cookies to support website functionality, login systems and payments.</p>
+        </div>
+
+        <button onClick={() => setPage("Home")} className="mt-10 rounded-xl bg-slate-950 px-6 py-3 text-white font-bold">Back to Home</button>
+      </div>
+    </main>
+  );
+}
+
+function Footer({ setPage }) {
+  return (
+    <footer className="bg-slate-950 text-white px-6 py-10 mt-20">
+      <div className="mx-auto max-w-7xl flex flex-col md:flex-row justify-between items-center gap-4">
+        <div className="flex items-center gap-3">
+          <img src={images.logoRound} alt="ACE logo" className="h-10 w-10 rounded-full" />
+          <p className="font-bold">ACE MiDAS Training</p>
+        </div>
+
+        <p className="text-sm text-slate-400">
+          © {new Date().getFullYear()} ACE MiDAS Training
+        </p>
+
+        <button onClick={() => setPage("Privacy")} className="text-sm hover:text-emerald-400">
+          Privacy Policy
+        </button>
+      </div>
+    </footer>
+  );
+}
+
 function LoginPage({ setPage, setLoggedInMember }) {
   const [step, setStep] = useState("credentials");
   const [email, setEmail] = useState("");
@@ -664,413 +725,3 @@ function LoginPage({ setPage, setLoggedInMember }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [pendingMember, setPendingMember] = useState(null);
-
-  function handleCredentials(event) {
-    event.preventDefault();
-    setError("");
-
-    if (!email.includes("@") || password.length < 6) {
-      setError("Please enter a valid email address and a password of at least 6 characters.");
-      return;
-    }
-
-    const matchedMember = demoMembers.find((item) => item.email.toLowerCase() === email.toLowerCase());
-    const fallbackMember = {
-      email,
-      organisation: "Demo Member Organisation",
-      role: "Depot / Site Manager",
-      access: {
-        depotSiteLogin: "https://journeytracker.manus.space/login?token=demoabc123xyz789"
-      },
-      onboardingStatus: "Setup required"
-    };
-
-    setPendingMember(matchedMember || fallbackMember);
-    setStep("verification");
-  }
-
-  function handleVerification(event) {
-    event.preventDefault();
-    setError("");
-
-    if (code !== "123456") {
-      setError("Demo verification code is 123456. In production this would be sent by email or SMS.");
-      return;
-    }
-
-    setLoggedInMember(pendingMember);
-    setPage("MemberDashboard");
-  }
-
-  return (
-    <main className="min-h-screen bg-slate-50 px-6 py-20">
-      <div className="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
-        <div>
-          <p className="font-semibold text-emerald-700">Secure Member Login</p>
-          <h1 className="mt-3 text-4xl font-black tracking-tight md:text-6xl">Access your organisation’s compliance portal.</h1>
-          <p className="mt-5 leading-8 text-slate-600">
-            Members should only access the system through a secure login. Each organisation can be given its own roles, app links and access permissions.
-          </p>
-
-          <div className="mt-8 rounded-3xl border border-amber-200 bg-amber-50 p-6 text-sm leading-7 text-amber-900">
-            <strong>Demo mode:</strong> This front-end login proves the customer journey. For live security, connect Supabase or Clerk so passwords, sessions, 2FA, roles and access logs are handled safely.
-          </div>
-        </div>
-
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-xl">
-          {step === "credentials" ? (
-            <form onSubmit={handleCredentials} className="grid gap-4">
-              <h2 className="text-3xl font-black">Member Login</h2>
-              <p className="text-sm text-slate-500">Enter your member credentials to continue.</p>
-              {error ? <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
-              <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} className="rounded-xl border p-4" placeholder="Email address" required />
-              <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="rounded-xl border p-4" placeholder="Password" required />
-              <button type="submit" className="rounded-xl bg-slate-950 p-4 font-black text-white">Continue</button>
-              <button type="button" onClick={() => setPage("Membership")} className="rounded-xl border p-4 font-bold text-slate-700">Need access? View Membership</button>
-            </form>
-          ) : (
-            <form onSubmit={handleVerification} className="grid gap-4">
-              <h2 className="text-3xl font-black">Two-step verification</h2>
-              <p className="text-sm text-slate-500">Enter the verification code sent to your registered email or phone.</p>
-              {error ? <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
-              <input value={code} onChange={(event) => setCode(event.target.value)} className="rounded-xl border p-4 text-center text-2xl tracking-[0.4em]" placeholder="123456" maxLength={6} required />
-              <button type="submit" className="rounded-xl bg-emerald-600 p-4 font-black text-white">Verify & Enter Portal</button>
-              <button type="button" onClick={() => setStep("credentials")} className="rounded-xl border p-4 font-bold text-slate-700">Back</button>
-            </form>
-          )}
-        </div>
-      </div>
-    </main>
-  );
-}
-
-function MemberDashboardPage({ member, setPage }) {
-  const [copied, setCopied] = useState("");
-
-  if (!member) {
-    return (
-      <main className="min-h-screen bg-slate-50 px-6 py-20 text-center">
-        <h1 className="text-4xl font-bold">Login required</h1>
-        <button type="button" onClick={() => setPage("Login")} className="mt-8 rounded-xl bg-slate-950 px-6 py-3 font-bold text-white">Go to Login</button>
-      </main>
-    );
-  }
-
-  const depotLoginUrl = member.access?.depotSiteLogin || "https://journeytracker.manus.space/login?token=demoabc123xyz789";
-
-  async function copyLink(url) {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied("Depot / Site Login URL copied");
-    } catch (error) {
-      setCopied("Could not copy link. Please open it and copy from the browser.");
-    }
-  }
-
-  return (
-    <main className="min-h-screen bg-slate-50 px-6 py-20">
-      <div className="mx-auto max-w-7xl">
-        <div className="rounded-[2rem] bg-slate-950 p-8 text-white shadow-xl">
-          <p className="font-semibold text-emerald-300">Member Dashboard</p>
-          <h1 className="mt-3 text-4xl font-black md:text-6xl">Welcome, {member.organisation}</h1>
-          <p className="mt-4 text-slate-300">Signed in as: {member.role}</p>
-        </div>
-
-        {copied ? <p className="mt-6 rounded-xl bg-emerald-50 p-4 text-sm font-semibold text-emerald-700">{copied}</p> : null}
-
-        <div className="mt-10 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-3xl border bg-white p-7 shadow-sm">
-            <p className="font-semibold text-emerald-700">Depot / Site Access</p>
-            <h2 className="mt-2 text-3xl font-black">Private token login URL</h2>
-            <p className="mt-3 leading-7 text-slate-600">
-              This private link is issued to the depot/site after setup. It uses a unique token so the URL does not reveal the depot name and can be revoked or regenerated when needed.
-            </p>
-            <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm break-all text-slate-600">{depotLoginUrl}</div>
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              <a href={depotLoginUrl} target="_blank" rel="noreferrer" className="rounded-xl bg-emerald-600 p-4 text-center font-black text-white">Open Depot / Site Login</a>
-              <button type="button" onClick={() => copyLink(depotLoginUrl)} className="rounded-xl border border-slate-200 p-4 font-bold text-slate-700">Copy Login URL</button>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border bg-white p-7 shadow-sm">
-            <p className="font-semibold text-amber-700">Onboarding Status</p>
-            <h2 className="mt-2 text-3xl font-black">{member.onboardingStatus || "Setup required"}</h2>
-            <div className="mt-5 space-y-3 text-slate-700">
-              <p>✔ Subscription/member access created</p>
-              <p>✔ Depot/site login token prepared</p>
-              <p>⚠ Depot requirements still need confirming</p>
-              <p>⚠ Road staff app isolation handled inside Manus</p>
-            </div>
-            <button type="button" onClick={() => setPage("Onboarding")} className="mt-6 w-full rounded-xl bg-slate-950 p-4 font-black text-white">Complete Onboarding</button>
-          </div>
-        </div>
-
-        <div className="mt-10 grid gap-6 lg:grid-cols-3">
-          <div className="rounded-3xl border bg-white p-7 shadow-sm">
-            <h2 className="text-2xl font-bold">Token-based security</h2>
-            <p className="mt-3 text-slate-600">Each depot/site gets a private random token URL. Tokens can be revoked and regenerated by the super admin.</p>
-          </div>
-
-          <div className="rounded-3xl border bg-white p-7 shadow-sm">
-            <h2 className="text-2xl font-bold">Customer separation</h2>
-            <p className="mt-3 text-slate-600">The Manus app should tie each session to the token so users only see their depot/site data.</p>
-          </div>
-
-          <div className="rounded-3xl border bg-white p-7 shadow-sm">
-            <h2 className="text-2xl font-bold">Need changes?</h2>
-            <p className="mt-3 text-slate-600">Request a new token, extra depot/site login, or onboarding support.</p>
-            <button type="button" onClick={() => setPage("Contact")} className="mt-6 w-full rounded-xl bg-slate-950 p-4 font-bold text-white">Request Support</button>
-          </div>
-        </div>
-      </div>
-    </main>
-  );
-}
-
-function OnboardingPage({ setPage }) {
-  const [form, setForm] = useState({
-    organisation: "",
-    mainContact: "",
-    email: "",
-    phone: "",
-    depotCount: "",
-    depotNames: "",
-    staffCount: "",
-    modules: "",
-    notes: ""
-  });
-  const [submitted, setSubmitted] = useState(false);
-  const [error, setError] = useState("");
-
-  function updateField(event) {
-    const { name, value } = event.target;
-    setForm((current) => ({ ...current, [name]: value }));
-  }
-
-  async function handleSubmit(event) {
-    event.preventDefault();
-    setError("");
-
-    try {
-      const response = await fetch(BOOKING_DETAILS_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ formType: "ACE Compliance Hub onboarding", ...form })
-      });
-      if (!response.ok) throw new Error("Unable to submit onboarding form");
-      setSubmitted(true);
-    } catch (err) {
-      setError("Something went wrong. Please email info@ace-midas-training.co.uk with your onboarding details.");
-    }
-  }
-
-  return (
-    <main className="min-h-screen bg-slate-50 px-6 py-20">
-      <div className="mx-auto max-w-5xl">
-        <div className="rounded-[2rem] bg-slate-950 p-8 text-white shadow-xl">
-          <p className="font-semibold text-emerald-300">Compliance Hub Onboarding</p>
-          <h1 className="mt-3 text-4xl font-black md:text-6xl">Tell us how your depot/site needs to be set up.</h1>
-          <p className="mt-4 max-w-3xl text-slate-300">This helps us configure your private depot/site login token, required modules and customer-specific setup.</p>
-        </div>
-
-        <div className="mt-10 rounded-3xl border bg-white p-7 shadow-sm">
-          {submitted ? (
-            <div className="py-10 text-center">
-              <h2 className="text-3xl font-black text-emerald-600">Onboarding details submitted ✅</h2>
-              <p className="mt-3 text-slate-600">We will review your setup requirements and contact you shortly.</p>
-              <button type="button" onClick={() => setPage("MemberDashboard")} className="mt-6 rounded-xl bg-slate-950 px-6 py-3 font-bold text-white">Back to Dashboard</button>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="grid gap-4">
-              <h2 className="text-2xl font-bold">Onboarding Form</h2>
-              {error ? <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
-              <div className="grid gap-4 sm:grid-cols-2">
-                <input name="organisation" value={form.organisation} onChange={updateField} className="rounded-xl border p-3" placeholder="Organisation name" required />
-                <input name="mainContact" value={form.mainContact} onChange={updateField} className="rounded-xl border p-3" placeholder="Main contact name" required />
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <input name="email" value={form.email} onChange={updateField} className="rounded-xl border p-3" placeholder="Email address" required />
-                <input name="phone" value={form.phone} onChange={updateField} className="rounded-xl border p-3" placeholder="Phone number" />
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <input name="depotCount" value={form.depotCount} onChange={updateField} className="rounded-xl border p-3" placeholder="How many depots/sites?" required />
-                <input name="staffCount" value={form.staffCount} onChange={updateField} className="rounded-xl border p-3" placeholder="Approx. number of users/staff" />
-              </div>
-              <textarea name="depotNames" value={form.depotNames} onChange={updateField} className="rounded-xl border p-3" rows={3} placeholder="Depot/site names or locations" />
-              <select name="modules" value={form.modules} onChange={updateField} className="rounded-xl border p-3" required>
-                <option value="">Which modules do you need?</option>
-                <option>Journey reporting only</option>
-                <option>Journey reporting + attendance</option>
-                <option>Journey reporting + medication</option>
-                <option>Journey, attendance, medication, wheelchair checks and incidents</option>
-                <option>Not sure yet — advise me</option>
-              </select>
-              <textarea name="notes" value={form.notes} onChange={updateField} className="rounded-xl border p-3" rows={5} placeholder="Any setup notes, access requirements, route types, or special instructions." />
-              <button type="submit" className="rounded-xl bg-emerald-600 p-4 font-black text-white">Submit Onboarding Details</button>
-            </form>
-          )}
-        </div>
-      </div>
-    </main>
-  );
-}
-
-function ReviewsPage() {
-  const reviews = [
-    { rating: "★★★★★", name: "Transport Manager", org: "SEND Transport Provider", text: "The system gives us a clearer way to evidence what happens on each journey." },
-    { rating: "★★★★★", name: "School Operations Lead", org: "Academy Trust", text: "The training and compliance approach feels practical, organised and relevant." },
-    { rating: "★★★★★", name: "Compliance Lead", org: "Community Transport", text: "This would help us prepare records for audits and contract monitoring." }
-  ];
-
-  return (
-    <main className="min-h-screen bg-slate-50 px-6 py-20">
-      <div className="mx-auto max-w-7xl">
-        <div className="mx-auto max-w-3xl text-center">
-          <p className="font-semibold text-emerald-600">Reviews & Ratings</p>
-          <h1 className="mt-3 text-4xl font-bold md:text-6xl">Trusted by transport and education teams</h1>
-        </div>
-        <div className="mt-12 grid gap-6 md:grid-cols-3">
-          {reviews.map((review) => <div key={review.name} className="rounded-3xl border bg-white p-7 shadow-sm"><p className="text-xl text-amber-500">{review.rating}</p><p className="mt-4 text-slate-700">“{review.text}”</p><p className="mt-6 font-bold">{review.name}</p><p className="text-sm text-slate-500">{review.org}</p></div>)}
-        </div>
-      </div>
-    </main>
-  );
-}
-
-function BlogPage() {
-  const posts = [
-    { tag: "Compliance", title: "Why transport compliance needs more than paper records", text: "A practical look at why daily evidence matters for SEND transport providers." },
-    { tag: "Training", title: "MiDAS, PATS and digital compliance", text: "How training and digital records work together to protect operators and passengers." },
-    { tag: "Contracts", title: "What councils may expect from transport providers", text: "How audit-ready records support stronger contract monitoring and accountability." }
-  ];
-
-  return (
-    <main className="min-h-screen bg-slate-50 px-6 py-20">
-      <div className="mx-auto max-w-7xl">
-        <p className="font-semibold text-emerald-600">Blog</p>
-        <h1 className="mt-3 max-w-4xl text-4xl font-bold md:text-6xl">Insights for passenger transport training and compliance</h1>
-        <div className="mt-12 grid gap-6 md:grid-cols-3">
-          {posts.map((post) => <article key={post.title} className="rounded-3xl border bg-white p-7 shadow-sm"><p className="text-sm font-semibold text-emerald-600">{post.tag}</p><h2 className="mt-3 text-2xl font-bold">{post.title}</h2><p className="mt-3 text-slate-600">{post.text}</p><button className="mt-6 font-bold text-emerald-700">Read article →</button></article>)}
-        </div>
-      </div>
-    </main>
-  );
-}
-
-function ContactPage() {
-  const [form, setForm] = useState({ name: "", organisation: "", email: "", phone: "", service: "", message: "" });
-  const [submitted, setSubmitted] = useState(false);
-  const [error, setError] = useState("");
-
-  function updateField(event) {
-    const { name, value } = event.target;
-    setForm((current) => ({ ...current, [name]: value }));
-  }
-
-  async function handleSubmit(event) {
-    event.preventDefault();
-    setError("");
-    try {
-      const response = await fetch(BOOKING_DETAILS_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ formType: "General lead capture", ...form })
-      });
-      if (!response.ok) throw new Error("Unable to submit form");
-      setSubmitted(true);
-    } catch (err) {
-      setError("Something went wrong. Please email info@ace-midas-training.co.uk or try again later.");
-    }
-  }
-
-  return (
-    <main className="min-h-screen bg-slate-50">
-      <section className="bg-slate-950 px-6 py-24 text-white">
-        <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-2 lg:items-center">
-          <div>
-            <p className="font-semibold text-emerald-300">Contact ACE MiDAS Training</p>
-            <h1 className="mt-3 text-4xl font-bold md:text-6xl">We would love to hear from you</h1>
-            <p className="mt-6 text-lg leading-8 text-slate-300">Tell us what you need and we’ll help with training, compliance support, group bookings or demo access.</p>
-          </div>
-          <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-white/10 p-3 shadow-xl">
-            <img src={images.handshake} alt="Handshake" className="h-[360px] w-full rounded-[1.5rem] object-cover" />
-          </div>
-        </div>
-      </section>
-
-      <section className="bg-emerald-500 px-6 py-20 text-slate-950">
-        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-2">
-          <div>
-            <h2 className="text-4xl font-bold">Speak to us about your organisation</h2>
-            <p className="mt-4 text-lg">We can help you decide whether you need training only, compliance system access, or a premium support package.</p>
-            <div className="mt-8 rounded-3xl bg-slate-950 p-6 text-white">
-              <h3 className="text-xl font-bold">Direct contact</h3>
-              <p className="mt-3 text-slate-300">Email: info@ace-midas-training.co.uk</p>
-              <p className="text-slate-300">Phone: 020 3633 4203 / 07570 988 597</p>
-            </div>
-          </div>
-
-          <div className="rounded-3xl bg-white p-7 shadow-xl">
-            {submitted ? <div className="py-10 text-center"><h2 className="text-2xl font-bold text-emerald-600">Enquiry sent ✅</h2><p className="mt-3 text-slate-600">Thank you. We will contact you shortly.</p></div> : (
-              <form onSubmit={handleSubmit} className="grid gap-4">
-                <h2 className="text-2xl font-bold">Lead Capture Form</h2>
-                {error ? <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
-                <input name="name" value={form.name} onChange={updateField} className="rounded-xl border p-3" placeholder="Full name" required />
-                <input name="organisation" value={form.organisation} onChange={updateField} className="rounded-xl border p-3" placeholder="Organisation" required />
-                <input name="email" value={form.email} onChange={updateField} className="rounded-xl border p-3" placeholder="Email address" required />
-                <input name="phone" value={form.phone} onChange={updateField} className="rounded-xl border p-3" placeholder="Phone number" />
-                <select name="service" value={form.service} onChange={updateField} className="rounded-xl border p-3" required>
-                  <option value="">What do you need?</option>
-                  <option>MiDAS Training</option>
-                  <option>PATS Training</option>
-                  <option>First Aid Training</option>
-                  <option>Children’s Transport First Aid</option>
-                  <option>ACE Compliance Hub Demo</option>
-                  <option>Premium Compliance Partner</option>
-                </select>
-                <textarea name="message" value={form.message} onChange={updateField} className="rounded-xl border p-3" rows={5} placeholder="Tell us what you need." />
-                <button type="submit" className="rounded-xl bg-slate-950 p-4 font-bold text-white">Submit Enquiry</button>
-              </form>
-            )}
-          </div>
-        </div>
-      </section>
-    </main>
-  );
-}
-
-export default function App() {
-  const [page, setPage] = useState("Home");
-  const [selectedCourse, setSelectedCourse] = useState(null);
-  const [loggedInMember, setLoggedInMember] = useState(null);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("payment") === "success" || params.get("success") === "true") {
-      setPage("BookingConfirmation");
-    }
-  }, []);
-
-  function startBooking(course) {
-    setSelectedCourse(course);
-    setPage("Booking");
-  }
-
-  return (
-    <div className="min-h-screen bg-slate-50 text-slate-950">
-      <Header page={page} setPage={setPage} />
-      {page === "Home" && <HomePage setPage={setPage} />}
-      {page === "Training" && <TrainingPage startBooking={startBooking} />}
-      {page === "Booking" && <BookingPage course={selectedCourse} setPage={setPage} />}
-      {page === "BookingConfirmation" && <BookingConfirmationPage setPage={setPage} />}
-      {page === "Compliance" && <CompliancePage setPage={setPage} />}
-      {page === "Membership" && <MembershipPage setPage={setPage} />}
-      {page === "Login" && <LoginPage setPage={setPage} setLoggedInMember={setLoggedInMember} />}
-      {page === "MemberDashboard" && <MemberDashboardPage member={loggedInMember} setPage={setPage} />}
-      {page === "Onboarding" && <OnboardingPage setPage={setPage} />}
-      {page === "Reviews" && <ReviewsPage />}
-      {page === "Blog" && <BlogPage />}
-      {page === "Contact" && <ContactPage />}
-    </div>
-  );
-}
