@@ -84,8 +84,7 @@ function Header({ page, setPage, openBackOffice }) {
             <p className="text-xs text-slate-500">Training • Compliance • Passenger Transport</p>
           </div>
         </button>
-
-        
+        <nav className="hidden items-center gap-6 text-sm font-medium text-slate-600 md:flex">
           {nav.map((item) => (
             <button key={item} type="button" onClick={() => setPage(item)} className={page === item ? "text-emerald-600" : "hover:text-emerald-600"}>
               {item}
