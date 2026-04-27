@@ -218,7 +218,16 @@ export default function App() {
   const [posts, setPosts] = useState(initialPosts);
   const [reviews, setReviews] = useState(initialReviews);
 
-  useEffect(() => { const params = new URLSearchParams(window.location.search); if (params.get("payment") === "success" || params.get("success") === "true") setPage("BookingConfirmation"); }, []);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("payment") === "success" || params.get("success") === "true") {
+      setPage("BookingConfirmation");
+    }
+  }, []);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+  }, [page]);
   function startBooking(course) { setSelectedCourse(course); setPage("Booking"); }
   function openBackOffice() { setPage("BackOffice"); }
 
