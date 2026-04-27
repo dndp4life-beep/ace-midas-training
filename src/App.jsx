@@ -69,9 +69,9 @@ function Header({ page, setPage }) {
           ))}
         </nav>
 
-        <a href={DEPOT_LOGIN_URL} target="_blank" rel="noreferrer" className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white shadow-sm">
+        <button type="button" onClick={() => setPage("Membership")} className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white shadow-sm">
           Member Login
-        </a>
+        </button>
       </div>
     </header>
   );
@@ -522,6 +522,69 @@ function CompliancePage({ setPage }) {
   );
 }
 
+function MembershipPage({ setPage }) {
+  return (
+    <main className="min-h-screen bg-slate-50">
+      <section className="bg-slate-950 px-6 py-24 text-white">
+        <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-2 lg:items-center">
+          <div>
+            <p className="font-semibold text-emerald-300">Member Access</p>
+            <h1 className="mt-3 text-4xl font-extrabold md:text-6xl">Secure access to your compliance platform.</h1>
+            <p className="mt-6 text-lg leading-8 text-slate-300">
+              ACE Compliance Hub access is provided to approved member organisations only. Each organisation receives its own depot/site access and user credentials after subscription and onboarding.
+            </p>
+            <div className="mt-8 flex flex-col gap-4 sm:flex-row">
+              <a href={STRIPE_SUBSCRIPTION_URL} target="_blank" rel="noreferrer" className="rounded-xl bg-emerald-400 px-7 py-4 text-center font-bold text-slate-950">
+                Subscribe for Access
+              </a>
+              <button type="button" onClick={() => setPage("Contact")} className="rounded-xl border border-white/20 bg-white/10 px-7 py-4 font-bold text-white">
+                Request Setup Call
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-white/10 bg-white/10 p-7 shadow-xl backdrop-blur">
+            <h2 className="text-2xl font-bold">Access is protected</h2>
+            <div className="mt-6 space-y-4 text-slate-200">
+              <p>✔ Organisation-specific login credentials</p>
+              <p>✔ Depot/site access controlled per member</p>
+              <p>✔ User roles for admin, depot and road staff</p>
+              <p>✔ Two-factor authentication recommended</p>
+              <p>✔ Device/session monitoring and access logs</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="px-6 py-20">
+        <div className="mx-auto max-w-7xl">
+          <div className="grid gap-6 md:grid-cols-3">
+            <div className="rounded-3xl border bg-white p-7 shadow-sm">
+              <h3 className="text-2xl font-bold">1. Subscribe</h3>
+              <p className="mt-3 text-slate-600">The organisation subscribes or requests premium setup.</p>
+            </div>
+            <div className="rounded-3xl border bg-white p-7 shadow-sm">
+              <h3 className="text-2xl font-bold">2. Onboarding</h3>
+              <p className="mt-3 text-slate-600">We collect depot/site requirements, users, routes and compliance needs.</p>
+            </div>
+            <div className="rounded-3xl border bg-white p-7 shadow-sm">
+              <h3 className="text-2xl font-bold">3. Secure Access</h3>
+              <p className="mt-3 text-slate-600">Approved users receive credentials and access only to their organisation’s portal.</p>
+            </div>
+          </div>
+
+          <div className="mt-10 rounded-3xl border border-amber-200 bg-amber-50 p-7 text-amber-900">
+            <h3 className="text-2xl font-bold">Important security note</h3>
+            <p className="mt-3 leading-7">
+              The live app link should not be publicly displayed. Member access should be handled through a proper authentication system with roles, 2FA, secure sessions and organisation-level access control.
+            </p>
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function ReviewsPage() {
   const reviews = [
     { rating: "★★★★★", name: "Transport Manager", org: "SEND Transport Provider", text: "The system gives us a clearer way to evidence what happens on each journey." },
@@ -670,6 +733,7 @@ export default function App() {
       {page === "Booking" && <BookingPage course={selectedCourse} setPage={setPage} />}
       {page === "BookingConfirmation" && <BookingConfirmationPage setPage={setPage} />}
       {page === "Compliance" && <CompliancePage setPage={setPage} />}
+      {page === "Membership" && <MembershipPage setPage={setPage} />}
       {page === "Reviews" && <ReviewsPage />}
       {page === "Blog" && <BlogPage />}
       {page === "Contact" && <ContactPage />}
