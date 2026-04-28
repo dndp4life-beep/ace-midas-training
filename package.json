@@ -13,6 +13,7 @@
     "postcss": "8.4.49",
     "autoprefixer": "10.4.20",
     "stripe": "latest"
+    "@supabase/supabase-js": "latest",
   },
   "devDependencies": {}
 }
