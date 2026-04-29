@@ -208,6 +208,9 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews }) {
   const [unlocked, setUnlocked] = useState(false);
   const [message, setMessage] = useState("");
   const [activeTab, setActiveTab] = useState("Dashboard");
+  const [blogForm, setBlogForm] = useState({ tag: "", title: "", content: "", status: "Draft" });
+  const [reviewForm, setReviewForm] = useState({ rating: "", name: "", organisation: "", content: "", status: "Draft" });
+  const [isSaving, setIsSaving] = useState(false);
   const [onboarding, setOnboarding] = useState(initialOnboarding);
   const [members, setMembers] = useState(initialMembers);
   const [activity, setActivity] = useState(initialActivity);
@@ -219,12 +222,260 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews }) {
     privacyReview: "April 2026"
   });
 
+  const tabs = ["Dashboard", "Blogs", "Reviews", "Onboarding", "Members", "Depot Tokens", "Activity", "Settings"];
+  const depotTokens = members.map((member) => ({
+    organisation: member.organisation,
+    token: member.depotUrl.split("token=")[1] || member.depotUrl,
+    url: member.depotUrl
+  }));
+
+  function showMessage(type, text) {
+    setMessage({ type, text });
+  }
+
+  function unlockBackOffice(e) {
+    e.preventDefault();
+    if (code.trim() !== "ACEADMIN2026") {
+      showMessage("error", "Incorrect admin code.");
+      return;
+    }
+    setUnlocked(true);
+    showMessage("success", "Back Office unlocked.");
+    setActivity((current) => ["Admin unlocked Back Office", ...current]);
+  }
+
+  function updateBlogField(e) {
+    const { name, value } = e.target;
+    setBlogForm((current) => ({ ...current, [name]: value }));
+  }
+
+  function updateReviewField(e) {
+    const { name, value } = e.target;
+    setReviewForm((current) => ({ ...current, [name]: value }));
+  }
+
+  async function saveBlog(e) {
+    e.preventDefault();
+    if (!blogForm.title.trim() || !blogForm.content.trim()) {
+      showMessage("error", "Blog title and content are required.");
+      return;
+    }
+    if (!supabase) {
+      showMessage("error", "Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY or VITE_SUPABASE_ANON_KEY.");
+      return;
+    }
+    setIsSaving(true);
+    const blog = {
+      tag: blogForm.tag.trim() || "Update",
+      title: blogForm.title.trim(),
+      content: blogForm.content.trim(),
+      status: blogForm.status
+    };
+    const { data, error } = await supabase.from("blog_posts").insert(blog).select("id, tag, title, content, status, created_at").single();
+    setIsSaving(false);
+    if (error) {
+      showMessage("error", error.message || "Unable to save blog.");
+      return;
+    }
+    const savedPost = data || blog;
+    setPosts((current) => [
+      { tag: savedPost.tag || "Update", title: savedPost.title || "Untitled", text: savedPost.content || "", status: savedPost.status || "Draft" },
+      ...current
+    ]);
+    setBlogForm({ tag: "", title: "", content: "", status: "Draft" });
+    setActivity((current) => [`Blog saved: ${blog.title}`, ...current]);
+    showMessage("success", "Blog saved to Supabase.");
+  }
+
+  async function saveReview(e) {
+    e.preventDefault();
+    if (!reviewForm.name.trim() || !reviewForm.content.trim()) {
+      showMessage("error", "Reviewer name and review content are required.");
+      return;
+    }
+    if (!supabase) {
+      showMessage("error", "Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY or VITE_SUPABASE_ANON_KEY.");
+      return;
+    }
+    setIsSaving(true);
+    const review = {
+      rating: reviewForm.rating.trim() || "5",
+      name: reviewForm.name.trim(),
+      organisation: reviewForm.organisation.trim(),
+      content: reviewForm.content.trim(),
+      status: reviewForm.status
+    };
+    const { data, error } = await supabase.from("reviews").insert(review).select("id, rating, name, organisation, content, status, created_at").single();
+    setIsSaving(false);
+    if (error) {
+      showMessage("error", error.message || "Unable to save review.");
+      return;
+    }
+    const savedReview = data || review;
+    setReviews((current) => [
+      { rating: savedReview.rating || "5", name: savedReview.name || "Reviewer", org: savedReview.organisation || "Organisation", text: savedReview.content || "", status: savedReview.status || "Draft" },
+      ...current
+    ]);
+    setReviewForm({ rating: "", name: "", organisation: "", content: "", status: "Draft" });
+    setActivity((current) => [`Review saved: ${review.name}`, ...current]);
+    showMessage("success", "Review saved to Supabase.");
+  }
+
+  function updateSettingsField(e) {
+    const { name, value } = e.target;
+    setSettings((current) => ({ ...current, [name]: value }));
+  }
+
+  if (!unlocked) {
+    return (
+      <main className="min-h-screen bg-slate-950 px-6 py-20 text-white">
+        <div className="mx-auto max-w-md rounded-3xl bg-white p-8 text-slate-950 shadow-xl">
+          <p className="font-semibold text-emerald-700">Back Office</p>
+          <h1 className="mt-3 text-3xl font-black">Admin unlock</h1>
+          {message ? <p className={`mt-5 rounded-xl p-3 text-sm font-semibold ${message.type === "error" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>{message.text}</p> : null}
+          <form onSubmit={unlockBackOffice} className="mt-6 grid gap-4">
+            <input type="password" value={code} onChange={(e) => setCode(e.target.value)} className="rounded-xl border border-slate-200 p-4" placeholder="Admin code" required />
+            <button type="submit" className="rounded-xl bg-slate-950 p-4 font-black text-white">Unlock Back Office</button>
+            <button type="button" onClick={() => setPage("Home")} className="rounded-xl border border-slate-200 p-4 font-bold text-slate-700">Back to Site</button>
+          </form>
+        </div>
+      </main>
+    );
+  }
+
   return (
-    <main className="min-h-screen bg-slate-950 px-6 py-20 text-white">
-      <div className="mx-auto max-w-4xl rounded-3xl bg-white p-8 text-slate-950">
-        <h1 className="text-3xl font-black">Back Office temporarily repaired</h1>
-        <p className="mt-4 text-slate-600">The previous Back Office code was cut off during editing. This repair restores the build so we can safely reconnect Supabase saving next.</p>
-        <button type="button" onClick={() => setPage("Home")} className="mt-6 rounded-xl bg-slate-950 px-6 py-3 font-bold text-white">Back to Site</button>
+    <main className="min-h-screen bg-slate-950 px-6 py-10 text-white">
+      <div className="mx-auto max-w-7xl">
+        <div className="flex flex-col gap-5 border-b border-white/10 pb-6 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="font-semibold text-emerald-300">ACE MiDAS Training</p>
+            <h1 className="mt-2 text-4xl font-black">Back Office</h1>
+          </div>
+          <button type="button" onClick={() => setPage("Home")} className="rounded-xl bg-white px-5 py-3 font-bold text-slate-950">Back to Site</button>
+        </div>
+
+        {message ? <p className={`mt-6 rounded-xl p-4 text-sm font-semibold ${message.type === "error" ? "bg-red-100 text-red-800" : "bg-emerald-100 text-emerald-800"}`}>{message.text}</p> : null}
+
+        <div className="mt-8 grid gap-6 lg:grid-cols-[240px_1fr]">
+          <aside className="rounded-2xl border border-white/10 bg-white/10 p-3">
+            <div className="grid gap-2">
+              {tabs.map((tab) => (
+                <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`rounded-xl px-4 py-3 text-left text-sm font-bold ${activeTab === tab ? "bg-emerald-400 text-slate-950" : "text-white hover:bg-white/10"}`}>
+                  {tab}
+                </button>
+              ))}
+            </div>
+          </aside>
+
+          <section className="rounded-3xl bg-white p-6 text-slate-950 shadow-xl">
+            {activeTab === "Dashboard" ? (
+              <div>
+                <h2 className="text-3xl font-black">Dashboard</h2>
+                <div className="mt-6 grid gap-4 md:grid-cols-4">
+                  <div className="rounded-2xl bg-slate-50 p-5"><p className="text-sm font-semibold text-slate-500">Posts</p><p className="mt-2 text-3xl font-black">{posts.length}</p></div>
+                  <div className="rounded-2xl bg-slate-50 p-5"><p className="text-sm font-semibold text-slate-500">Reviews</p><p className="mt-2 text-3xl font-black">{reviews.length}</p></div>
+                  <div className="rounded-2xl bg-slate-50 p-5"><p className="text-sm font-semibold text-slate-500">Onboarding</p><p className="mt-2 text-3xl font-black">{onboarding.length}</p></div>
+                  <div className="rounded-2xl bg-slate-50 p-5"><p className="text-sm font-semibold text-slate-500">Members</p><p className="mt-2 text-3xl font-black">{members.length}</p></div>
+                </div>
+              </div>
+            ) : null}
+
+            {activeTab === "Blogs" ? (
+              <div>
+                <h2 className="text-3xl font-black">Blogs</h2>
+                <form onSubmit={saveBlog} className="mt-6 grid gap-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <input name="tag" value={blogForm.tag} onChange={updateBlogField} className="rounded-xl border border-slate-200 p-3" placeholder="Tag" />
+                    <select name="status" value={blogForm.status} onChange={updateBlogField} className="rounded-xl border border-slate-200 p-3">
+                      <option>Draft</option>
+                      <option>Published</option>
+                    </select>
+                  </div>
+                  <input name="title" value={blogForm.title} onChange={updateBlogField} className="rounded-xl border border-slate-200 p-3" placeholder="Title" required />
+                  <textarea name="content" value={blogForm.content} onChange={updateBlogField} className="rounded-xl border border-slate-200 p-3" rows={7} placeholder="Content" required />
+                  <button type="submit" disabled={isSaving} className="rounded-xl bg-slate-950 p-4 font-black text-white disabled:opacity-60">{isSaving ? "Saving..." : "Save Blog"}</button>
+                </form>
+                <div className="mt-8 grid gap-3">
+                  {posts.map((post) => <div key={`${post.title}-${post.status}`} className="rounded-2xl bg-slate-50 p-4"><p className="text-sm font-bold text-emerald-700">{post.tag} - {post.status}</p><h3 className="mt-1 font-black">{post.title}</h3><p className="mt-2 text-sm text-slate-600">{post.text}</p></div>)}
+                </div>
+              </div>
+            ) : null}
+
+            {activeTab === "Reviews" ? (
+              <div>
+                <h2 className="text-3xl font-black">Reviews</h2>
+                <form onSubmit={saveReview} className="mt-6 grid gap-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <input name="rating" value={reviewForm.rating} onChange={updateReviewField} className="rounded-xl border border-slate-200 p-3" placeholder="Rating" />
+                    <select name="status" value={reviewForm.status} onChange={updateReviewField} className="rounded-xl border border-slate-200 p-3">
+                      <option>Draft</option>
+                      <option>Published</option>
+                    </select>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <input name="name" value={reviewForm.name} onChange={updateReviewField} className="rounded-xl border border-slate-200 p-3" placeholder="Name" required />
+                    <input name="organisation" value={reviewForm.organisation} onChange={updateReviewField} className="rounded-xl border border-slate-200 p-3" placeholder="Organisation" />
+                  </div>
+                  <textarea name="content" value={reviewForm.content} onChange={updateReviewField} className="rounded-xl border border-slate-200 p-3" rows={6} placeholder="Review content" required />
+                  <button type="submit" disabled={isSaving} className="rounded-xl bg-slate-950 p-4 font-black text-white disabled:opacity-60">{isSaving ? "Saving..." : "Save Review"}</button>
+                </form>
+                <div className="mt-8 grid gap-3">
+                  {reviews.map((review) => <div key={`${review.name}-${review.org}-${review.status}`} className="rounded-2xl bg-slate-50 p-4"><p className="text-sm font-bold text-amber-600">{review.rating} - {review.status}</p><h3 className="mt-1 font-black">{review.name}</h3><p className="text-sm text-slate-500">{review.org}</p><p className="mt-2 text-sm text-slate-600">{review.text}</p></div>)}
+                </div>
+              </div>
+            ) : null}
+
+            {activeTab === "Onboarding" ? (
+              <div>
+                <h2 className="text-3xl font-black">Onboarding</h2>
+                <div className="mt-6 grid gap-3">
+                  {onboarding.map((item) => <div key={item.email} className="rounded-2xl bg-slate-50 p-4"><h3 className="font-black">{item.organisation}</h3><p className="text-sm text-slate-600">{item.contact} - {item.email}</p><p className="mt-2 text-sm">{item.modules}</p><p className="mt-2 text-sm font-bold text-emerald-700">{item.status}</p></div>)}
+                </div>
+              </div>
+            ) : null}
+
+            {activeTab === "Members" ? (
+              <div>
+                <h2 className="text-3xl font-black">Members</h2>
+                <div className="mt-6 grid gap-3">
+                  {members.map((member) => <div key={member.organisation} className="rounded-2xl bg-slate-50 p-4"><h3 className="font-black">{member.organisation}</h3><p className="text-sm text-slate-600">{member.plan} - Payment: {member.payment}</p><p className="mt-2 text-sm font-bold text-emerald-700">Onboarding: {member.onboarding}</p></div>)}
+                </div>
+              </div>
+            ) : null}
+
+            {activeTab === "Depot Tokens" ? (
+              <div>
+                <h2 className="text-3xl font-black">Depot Tokens</h2>
+                <div className="mt-6 grid gap-3">
+                  {depotTokens.map((token) => <div key={token.url} className="rounded-2xl bg-slate-50 p-4"><h3 className="font-black">{token.organisation}</h3><p className="mt-2 break-all text-sm text-slate-600">{token.url}</p><p className="mt-2 text-xs font-bold text-slate-500">Token: {token.token}</p></div>)}
+                </div>
+              </div>
+            ) : null}
+
+            {activeTab === "Activity" ? (
+              <div>
+                <h2 className="text-3xl font-black">Activity</h2>
+                <div className="mt-6 grid gap-3">
+                  {activity.map((item, index) => <div key={`${item}-${index}`} className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">{item}</div>)}
+                </div>
+              </div>
+            ) : null}
+
+            {activeTab === "Settings" ? (
+              <div>
+                <h2 className="text-3xl font-black">Settings</h2>
+                <div className="mt-6 grid gap-4">
+                  <input name="contactEmail" value={settings.contactEmail} onChange={updateSettingsField} className="rounded-xl border border-slate-200 p-3" placeholder="Contact email" />
+                  <input name="phone" value={settings.phone} onChange={updateSettingsField} className="rounded-xl border border-slate-200 p-3" placeholder="Phone" />
+                  <input name="stripeLink" value={settings.stripeLink} onChange={updateSettingsField} className="rounded-xl border border-slate-200 p-3" placeholder="Stripe link" />
+                  <input name="complianceAppBase" value={settings.complianceAppBase} onChange={updateSettingsField} className="rounded-xl border border-slate-200 p-3" placeholder="Compliance app base" />
+                  <input name="privacyReview" value={settings.privacyReview} onChange={updateSettingsField} className="rounded-xl border border-slate-200 p-3" placeholder="Privacy review" />
+                  <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">Settings are local-only for now.</p>
+                </div>
+              </div>
+            ) : null}
+          </section>
+        </div>
       </div>
     </main>
   );
