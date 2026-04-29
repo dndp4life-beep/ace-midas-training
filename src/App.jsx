@@ -8,7 +8,10 @@ const BOOKING_CONFIRMATION_API = "/api/send-booking-confirmation";
 
 const SUPABASE_URL = import.meta.env?.VITE_SUPABASE_URL || "";
 const SUPABASE_KEY = import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_PUBLISHABLE_KEY || "";
-const supabase = SUPABASE_URL && SUPABASE_KEY
+const supabase = SUPABASE_URL && SUPABASE_KEY ? createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+
+console.log("SUPABASE_URL:", SUPABASE_URL ? "loaded" : "missing");
+console.log("SUPABASE_KEY:", SUPABASE_KEY ? "loaded" : "missing");
 
 const images = {
   logoHorizontal: "/images/logohorizontal.jpg",
@@ -208,4 +211,54 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews }) {
   const [onboarding, setOnboarding] = useState(initialOnboarding);
   const [members, setMembers] = useState(initialMembers);
   const [activity, setActivity] = useState(initialActivity);
-  const [settings, setSettings] = 
+  const [settings, setSettings] = useState({
+    contactEmail: "info@ace-midas-training.co.uk",
+    phone: "020 3633 4203 / 07570 988 597",
+    stripeLink: STRIPE_SUBSCRIPTION_URL,
+    complianceAppBase: "https://journeytracker.manus.space/login?token=",
+    privacyReview: "April 2026"
+  });
+
+  return (
+    <main className="min-h-screen bg-slate-950 px-6 py-20 text-white">
+      <div className="mx-auto max-w-4xl rounded-3xl bg-white p-8 text-slate-950">
+        <h1 className="text-3xl font-black">Back Office temporarily repaired</h1>
+        <p className="mt-4 text-slate-600">The previous Back Office code was cut off during editing. This repair restores the build so we can safely reconnect Supabase saving next.</p>
+        <button type="button" onClick={() => setPage("Home")} className="mt-6 rounded-xl bg-slate-950 px-6 py-3 font-bold text-white">Back to Site</button>
+      </div>
+    </main>
+  );
+}
+
+export default function App() {
+  const [page, setPage] = useState("Home");
+  const [selectedCourse, setSelectedCourse] = useState(null);
+  const [loggedInMember, setLoggedInMember] = useState(null);
+  const [posts, setPosts] = useState(initialPosts);
+  const [reviews, setReviews] = useState(initialReviews);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("payment") === "success" || params.get("success") === "true") setPage("BookingConfirmation");
+  }, []);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+  }, [page]);
+
+  useEffect(() => {
+    async function loadSupabaseContent() {
+      if (!supabase) return;
+      const { data: blogData, error: blogError } = await supabase.from("blog_posts").select("id, tag, title, content, status, created_at").order("created_at", { ascending: false });
+      if (!blogError && blogData && blogData.length > 0) setPosts(blogData.map((post) => ({ tag: post.tag || "Update", title: post.title || "Untitled", text: post.content || "", status: post.status || "Draft" })));
+      const { data: reviewData, error: reviewError } = await supabase.from("reviews").select("id, rating, name, organisation, content, status, created_at").order("created_at", { ascending: false });
+      if (!reviewError && reviewData && reviewData.length > 0) setReviews(reviewData.map((review) => ({ rating: review.rating || "★★★★★", name: review.name || "Reviewer", org: review.organisation || "Organisation", text: review.content || "", status: review.status || "Draft" })));
+    }
+    loadSupabaseContent();
+  }, []);
+
+  function startBooking(course) { setSelectedCourse(course); setPage("Booking"); }
+  function openBackOffice() { setPage("BackOffice"); }
+
+  return <div className="min-h-screen bg-slate-50 text-slate-950"><Header page={page} setPage={setPage} openBackOffice={openBackOffice} />{page === "Home" && <HomePage setPage={setPage} />}{page === "Training" && <TrainingPage startBooking={startBooking} />}{page === "Booking" && <BookingPage course={selectedCourse} setPage={setPage} />}{page === "BookingConfirmation" && <BookingConfirmationPage setPage={setPage} />}{page === "Compliance" && <CompliancePage setPage={setPage} />}{page === "Membership" && <MembershipPage setPage={setPage} />}{page === "Login" && <LoginPage setPage={setPage} setLoggedInMember={setLoggedInMember} />}{page === "MemberDashboard" && <MemberDashboardPage member={loggedInMember} setPage={setPage} />}{page === "Onboarding" && <OnboardingPage setPage={setPage} />}{page === "Reviews" && <ReviewsPage reviews={reviews} />}{page === "Blog" && <BlogPage posts={posts} />}{page === "Contact" && <ContactPage />}{page === "Privacy" && <PrivacyPage setPage={setPage} />}{page === "BackOffice" && <BackOfficePage setPage={setPage} posts={posts} setPosts={setPosts} reviews={reviews} setReviews={setReviews} />}<Footer setPage={setPage} /></div>;
+}
