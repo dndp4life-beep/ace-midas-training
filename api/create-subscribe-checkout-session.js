@@ -25,7 +25,10 @@ export default async function handler(req, res) {
   try {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
     const siteUrl = getCurrentSiteUrl(req);
-    const priceId = process.env.STRIPE_COMPLIANCE_PRICE_ID || DEFAULT_COMPLIANCE_PRICE_ID;
+    const requestedAmount = Number(req.body?.amount || req.body?.total || 495);
+    const priceId = requestedAmount === 1200
+      ? process.env.STRIPE_COMPLIANCE_1200_PRICE_ID || process.env.STRIPE_COMPLIANCE_PREMIUM_PRICE_ID || process.env.STRIPE_COMPLIANCE_PRICE_ID || DEFAULT_COMPLIANCE_PRICE_ID
+      : process.env.STRIPE_COMPLIANCE_PRICE_ID || DEFAULT_COMPLIANCE_PRICE_ID;
     const productType = req.body?.productType || "onboarding";
 
     const session = await stripe.checkout.sessions.create({
