@@ -69,7 +69,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         from: "ACE MiDAS Training <onboarding@resend.dev>",
-        to: [email],
+        to: [dndp4life@googlemail.com],
         subject: "Your ACE MiDAS Training login code",
         text: `Your secure login code is: ${code}\n\nThis code expires in 10 minutes.`,
         html: `<p>Your secure login code is: <strong>${code}</strong></p><p>This code expires in 10 minutes.</p>`
