@@ -1,0 +1,288 @@
+{
+  "version": "2.0 - CTA guidance added",
+  "last_updated": "2026-05-20",
+  "purpose": "Source-of-truth knowledge base for Mia, the ACE MiDAS Training communication assistant, website query page and approved enquiry responses.",
+  "business_identity": {
+    "business_name": "ACE MiDAS Training",
+    "website": "ace-midas-training.co.uk",
+    "business_type": "UK-based specialist training provider",
+    "core_sector": "Passenger transport, SEND transport, schools, councils, charities, care providers, community transport and organisations transporting children or vulnerable passengers.",
+    "brand_position": "Professional, practical, compliance-focused training delivered at the customer's site to improve safety, confidence and training visibility."
+  },
+  "delivery_and_pricing_rules": [
+    {
+      "rule": "Onsite delivery",
+      "approved_wording": "ACE MiDAS Training travels to the customer's organisation to provide training. Training is arranged around the course type, group size, location and booking requirements."
+    },
+    {
+      "rule": "Group discounts",
+      "approved_wording": "Discounts are available for larger group bookings. It is more cost-effective for organisations to book training in larger groups where possible."
+    },
+    {
+      "rule": "Pricing",
+      "approved_wording": "If an approved price is stored in the knowledge base, Mia may provide it. If not, direct the visitor to the relevant training or compliance page and invite them to submit an enquiry."
+    },
+    {
+      "rule": "Train-the-trainer",
+      "approved_wording": "ACE MiDAS Training does not currently provide train-the-trainer services."
+    }
+  ],
+  "core_services": [
+    "PATS training",
+    "MiDAS training",
+    "First Aid training",
+    "Children's Transport First Aid / CTFA",
+    "FAW",
+    "EFAW",
+    "Buccal Midazolam training",
+    "Refresher training",
+    "Compliance tracking support"
+  ],
+  "cta_guidance": {
+    "pats": {
+      "launch": "The updated PATS course officially launched on 1 March 2026.",
+      "who_for": "PATS is for people who have care or supervision responsibilities for passengers travelling by road, including minibus, car, MPV or bus journeys.",
+      "structure": "PATS Standard is the core route. PATS Accessible is optional/additional for Passenger Assistants travelling in accessible vehicles or who have responsibility for helping to secure passengers seated in wheelchairs.",
+      "pats_standard": [
+        {
+          "element": "Online theory",
+          "duration": "120 minutes, self-paced",
+          "details": "Covers the role of Passenger Assistants and passenger-centred journeys. Includes a multiple-choice theory assessment with 80% pass mark. Learner must pass before the in-person workshop."
+        },
+        {
+          "element": "Passenger Assistant Workshop",
+          "duration": "90-120 minutes",
+          "group_size": "Groups of 6",
+          "details": "Opportunity to discuss online theory and apply knowledge to real-life case studies and scenarios. Reviews understanding and helps learners apply knowledge to practical scenarios."
+        }
+      ],
+      "pats_accessible": [
+        {
+          "element": "Practical Skills Session",
+          "duration": "60 minutes",
+          "group_size": "Groups of 3",
+          "details": "Develops practical understanding of specialist accessible equipment. Includes overview, demonstrations and supervised practice with lifts/ramps and WTORS. If not assessed, learners can receive PATS Accessible Certificate of Attendance."
+        },
+        {
+          "element": "Practical Skills Assessment",
+          "duration": "Up to 20 minutes per Passenger Assistant",
+          "group_size": "Groups of 3",
+          "details": "Optional assessment where Passenger Assistants have responsibility for using specialist equipment. Assessment covers boarding/alighting using passenger lift or ramp, securing and releasing a wheelchair, and assisting with safety belt or harness."
+        }
+      ],
+      "certificate_validity": "3 years",
+      "cta_online_cost_note": "CTA states that the cost of PATS includes £30 per Passenger Assistant for access to the online theory course, with continued access to the system for 3 years including resources and updates.",
+      "planning_note": "For PATS Accessible / wheelchair practical elements, plan delivery around groups of 3. Larger cohorts should be rotated through repeated groups of 3. CTA's information pack also shows a model of 12 Passenger Assistants completing PATS Accessible over 2 days as 4 groups of 3."
+    },
+    "midas": {
+      "who_for": "MiDAS is suitable for anyone required to drive a minibus as part of their role, subject to the correct driving entitlement or category B licence conditions.",
+      "midas_standard": [
+        {
+          "element": "Online theory course and theory assessment",
+          "duration": "90 minutes",
+          "details": "Interactive e-learning covering legal responsibilities and essential theoretical knowledge for safe, legal and comfortable journeys."
+        },
+        {
+          "element": "Individual Practical Session",
+          "duration": "Up to 45 minutes",
+          "details": "One-to-one minibus session with a Driver Assessor. Tailored to the driver's needs and ability and allows time to discuss online learning."
+        },
+        {
+          "element": "Driving Assessment",
+          "duration": "Up to 45 minutes",
+          "details": "One-to-one assessment in a minibus against the nationally recognised MiDAS Standard."
+        }
+      ],
+      "midas_accessible": [
+        {
+          "element": "Accessible online theory and assessment",
+          "duration": "90 minutes",
+          "details": "Additional optional training for drivers transporting passengers who need support and using vehicles with specialist equipment such as lifts and ramps. Includes 10-question assessment with 80% pass mark. MiDAS Standard is a prerequisite."
+        },
+        {
+          "element": "Practical Skills Session",
+          "duration": "Variable depending on experience",
+          "details": "Demonstration from a Driver Assessor showing best practice using a passenger lift or ramp and WTORS. Supervised practice may be required."
+        },
+        {
+          "element": "Practical Skills Assessment",
+          "duration": "Around/up to 20 minutes per driver",
+          "details": "Assessment of the driver's ability to demonstrate safe practice using a passenger lift/ramp and WTORS. Assessment includes passenger lift or ramp, wheelchair tie-down equipment and occupant restraint system."
+        }
+      ],
+      "certificate_validity": "4 years",
+      "cta_online_cost_note": "CTA states that MiDAS Standard includes £40 per driver for access to the online theory course, with continued system access for 4 years including resources and updates. CTA states there is no additional charge for access to MiDAS Accessible online content, though providers may charge for additional practical/assessment time.",
+      "planning_note": "MiDAS Standard practical and driving assessment elements are one-to-one with a Driver Assessor. MiDAS Accessible is additional optional training after MiDAS Standard and may need extra practical/assessment time."
+    }
+  },
+  "certificate_validity": [
+    {
+      "course": "PATS",
+      "validity": "3 years",
+      "source": "CTA"
+    },
+    {
+      "course": "MiDAS Standard",
+      "validity": "4 years",
+      "source": "CTA"
+    },
+    {
+      "course": "MiDAS Accessible",
+      "validity": "4 years",
+      "source": "CTA"
+    },
+    {
+      "course": "Children's Transport First Aid / CTFA",
+      "validity": "3 years",
+      "source": "Provider/course certificate wording to confirm where required"
+    },
+    {
+      "course": "First Aid at Work / FAW",
+      "validity": "3 years",
+      "source": "Workplace first aid certificate validity"
+    },
+    {
+      "course": "Emergency First Aid at Work / EFAW",
+      "validity": "3 years",
+      "source": "Workplace first aid certificate validity"
+    },
+    {
+      "course": "Buccal Midazolam",
+      "validity": "Typically 2 years, but confirm against the issuing provider/certificate wording",
+      "source": "Provider/course certificate wording"
+    }
+  ],
+  "tone_rules": [
+    "Professional",
+    "Clear",
+    "Warm",
+    "Helpful",
+    "Compliance-aware",
+    "Suitable for councils, schools, charities, care providers and transport organisations",
+    "Commercially confident without overpromising"
+  ],
+  "guardrails": [
+    "Mia must use approved knowledge base content only.",
+    "Mia must not invent services, prices, dates, accreditations, availability or legal claims.",
+    "Mia must not claim ACE MiDAS Training is council-approved, accredited, licensed, the cheapest, legally guaranteed, or able to provide services not listed in the approved knowledge base.",
+    "Mia must not provide medical, legal or operational safety advice beyond approved course descriptions.",
+    "Where CTA guidance is referenced, Mia should state it plainly and avoid presenting it as legal advice.",
+    "Every service-related answer should guide the visitor towards an enquiry, quote request or relevant page."
+  ],
+  "lead_capture_fields": [
+    "Name",
+    "Organisation",
+    "Email",
+    "Phone number",
+    "Course interest",
+    "Number of participants",
+    "Training location",
+    "Preferred dates",
+    "Urgency",
+    "Passenger group involved",
+    "Whether wheelchair/accessibility element is needed"
+  ],
+  "faqs": [
+    {
+      "question": "Do you offer train-the-trainer?",
+      "category": "Train-the-Trainer",
+      "status": "approved",
+      "approved_answer": "ACE MiDAS Training does not currently provide a train-the-trainer service. We provide direct training services, including PATS, MiDAS, First Aid and compliance-related training. Full details of available services and pricing can be found on our training and compliance pages."
+    },
+    {
+      "question": "Do you travel to us to provide training?",
+      "category": "Onsite Training",
+      "status": "approved",
+      "approved_answer": "Yes. ACE MiDAS Training travels to your organisation to provide training. Please provide your location, course requirement and number of participants so we can confirm the best delivery plan."
+    },
+    {
+      "question": "Do you offer group booking discounts?",
+      "category": "Pricing",
+      "status": "approved",
+      "approved_answer": "Yes. Discounts are available for larger group bookings, making it more cost-effective to train larger groups together. Please provide the course required, number of participants and training location so the correct group option can be discussed."
+    },
+    {
+      "question": "What training do you provide?",
+      "category": "Services",
+      "status": "approved",
+      "approved_answer": "ACE MiDAS Training provides direct training services including PATS, MiDAS, First Aid, Children's Transport First Aid, Buccal Midazolam training, refresher training and compliance-related support. The training is suitable for schools, councils, transport providers, charities, care providers and organisations transporting children or vulnerable passengers."
+    },
+    {
+      "question": "How does the new PATS Standard course work?",
+      "category": "CTA PATS Guidance",
+      "status": "approved",
+      "approved_answer": "Under the updated CTA PATS model, PATS Standard includes 120 minutes of online theory followed by a Passenger Assistant Workshop. The workshop is 90-120 minutes and delivered in groups of 6. Learners must pass the theory assessment before progressing to the in-person workshop."
+    },
+    {
+      "question": "How does PATS Accessible / wheelchair training work?",
+      "category": "CTA PATS Guidance",
+      "status": "approved",
+      "approved_answer": "PATS Accessible is additional training for Passenger Assistants travelling in accessible vehicles or responsible for helping to secure passengers seated in wheelchairs. The Practical Skills Session is 60 minutes in groups of 3. The optional Practical Skills Assessment is up to 20 minutes per Passenger Assistant, also in groups of 3."
+    },
+    {
+      "question": "What does the PATS Accessible assessment include?",
+      "category": "CTA PATS Guidance",
+      "status": "approved",
+      "approved_answer": "The PATS Accessible practical assessment covers three areas: assisting a wheelchair user to board and alight using a passenger lift or ramp, securing and releasing a passenger's wheelchair before and after a journey, and assisting a passenger with a safety belt or harness before and after a journey."
+    },
+    {
+      "question": "How long does a PATS certificate last?",
+      "category": "Certificate Validity",
+      "status": "approved",
+      "approved_answer": "A PATS certificate is valid for 3 years. CTA also states that online theory access includes continued system access for 3 years, including resources and updates."
+    },
+    {
+      "question": "How does MiDAS Standard work?",
+      "category": "CTA MiDAS Guidance",
+      "status": "approved",
+      "approved_answer": "MiDAS Standard includes a 90-minute online theory course and theory assessment, an individual practical session of up to 45 minutes in a minibus, and a driving assessment of up to 45 minutes in a minibus."
+    },
+    {
+      "question": "How does MiDAS Accessible work?",
+      "category": "CTA MiDAS Guidance",
+      "status": "approved",
+      "approved_answer": "MiDAS Accessible is additional optional training for drivers who transport passengers needing additional support or use vehicles with specialist equipment such as passenger lifts and ramps. MiDAS Standard is a prerequisite. MiDAS Accessible includes online theory and assessment, practical skills training and a practical skills assessment using specialist equipment such as lifts/ramps and WTORS."
+    },
+    {
+      "question": "How long does a MiDAS certificate last?",
+      "category": "Certificate Validity",
+      "status": "approved",
+      "approved_answer": "A MiDAS certificate lasts for 4 years. This applies to MiDAS Standard and MiDAS Accessible certificates issued on successful completion."
+    },
+    {
+      "question": "Can you train 50 staff in PATS Accessible?",
+      "category": "Planning",
+      "status": "approved",
+      "approved_answer": "Yes. For PATS Accessible practical and assessment elements, CTA's model uses groups of 3. For 50 staff, we would plan a structured programme using repeated groups of 3. A practical planning guide is approximately 10 training days with one trainer if using a 12-learners-over-2-days model, but the final schedule should be confirmed once group size, venue, vehicle and equipment arrangements are known."
+    },
+    {
+      "question": "Where can I find your prices?",
+      "category": "Pricing",
+      "status": "approved",
+      "approved_answer": "Full details of available services and pricing can be found on the ACE MiDAS Training training and compliance pages. If you are enquiring about a group booking, please submit an enquiry with the course required, number of participants and training location so the correct group option can be discussed."
+    },
+    {
+      "question": "Can training be delivered at our site?",
+      "category": "Onsite Training",
+      "status": "approved",
+      "approved_answer": "Yes. ACE MiDAS Training travels to your organisation to provide training. Please provide the course required, number of participants and location so the most suitable delivery plan can be confirmed."
+    }
+  ],
+  "sources": [
+    {
+      "name": "CTA Latest PATS Updates",
+      "url": "https://ctauk.org/latest-pats-updates",
+      "notes": "Updated PATS course officially launched on 1 March 2026."
+    },
+    {
+      "name": "CTA Our Courses",
+      "url": "https://ctauk.org/our-courses",
+      "notes": "Current CTA course descriptions for MiDAS and PATS, including delivery model, durations, group sizes, online access costs and certificate validity."
+    },
+    {
+      "name": "CTA MiDAS Information Pack v2.0",
+      "url": "https://ctauk.org/sites/default/files/2025-12/news/MiDAS%20Information%20Pack%20v2.0.pdf",
+      "notes": "PDF information pack with PATS Standard/Accessible model, MiDAS structure and visual timetable guidance."
+    }
+  ]
+}
