@@ -125,13 +125,19 @@ function parseRawEmail(raw: string, uid: string) {
 function classifyEmail(email: Record<string, string>) {
   const text = `${email.sender_name} ${email.sender_email} ${email.subject} ${email.raw_excerpt}`.toLowerCase();
   const has = (...values: string[]) => values.some((value) => text.includes(value));
-  const protectedReview = has("council", "local authority", ".gov.uk", "school", "academy", "invoice", "payment", "legal", "compliance");
+  const unsolicitedServiceOffer = has("finance solution", "flexible finance", "business loan", "funding solution", "working capital", "local electrician", "electrician for", "seo", "backlink", "guest post", "web design", "marketing package", "lead generation", "outsourcing", "our services", "offer you our", "we offer businesses", "grow your business", "improve your website", "free consultation", "crypto");
+  const protectedReview = !unsolicitedServiceOffer && has("council", "local authority", ".gov.uk", "school", "academy", "invoice", "payment", "legal", "compliance");
   let category = "Review Later";
   let priority = "Medium";
   let recommended_action = "Review";
   const matched_rules: string[] = [];
 
-  if (has("council", "local authority", ".gov.uk")) {
+  if (unsolicitedServiceOffer) {
+    category = "Likely Spam";
+    priority = "Low";
+    recommended_action = "Archive Suggestion";
+    matched_rules.push("unsolicited_service_offer");
+  } else if (has("council", "local authority", ".gov.uk")) {
     category = "Council / Local Authority";
     priority = "High";
     recommended_action = "Draft Reply";
