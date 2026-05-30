@@ -94,6 +94,7 @@ The Fasthosts Livemail sync must remain read-only:
 - Import with `BODY.PEEK` so messages are not marked as read.
 - Never move, delete, archive, unsubscribe, or send from the mailbox.
 - Keep mailbox credentials in Supabase Edge Function secrets only.
+- Require the separate `ELLIS_SYNC_SECRET` server-to-server trigger credential. Store the same value in Vercel and Supabase Edge Function secrets only.
 
 Future Gmail and Microsoft 365 / Outlook connections must use OAuth 2.0 with PKCE, server-side token references, token refresh handling, and mailbox ownership. Passwords and raw OAuth tokens must not be stored in frontend code.
 

@@ -161,7 +161,7 @@ The Back Office Ellis Operations Centre supports:
 - Read-only Fasthosts Livemail IMAP sync
 - Future mailbox connection readiness for Gmail and Microsoft 365 / Outlook
 
-Ellis must not automatically send, delete, archive, or unsubscribe. The Fasthosts Livemail connection uses server-side Supabase secrets for read-only IMAP access. Future Gmail and Microsoft inbox integrations must use OAuth 2.0 with PKCE and secure server-side token references. Passwords and raw OAuth tokens must never be stored in frontend code.
+Ellis must not automatically send, delete, archive, or unsubscribe. The Fasthosts Livemail connection uses server-side Supabase secrets for read-only IMAP access. Vercel triggers the sync using a separate `ELLIS_SYNC_SECRET` shared only between the Vercel server and Supabase Edge Function. Future Gmail and Microsoft inbox integrations must use OAuth 2.0 with PKCE and secure server-side token references. Passwords and raw OAuth tokens must never be stored in frontend code.
 
 ## Important Development Rules
 
