@@ -80,11 +80,17 @@ const followUpTaskSelect = "id, prospect_id, agent_name, task_type, status, sche
 const roryResearchRunSelect = "id, run_type, status, search_theme, provider, provider_task_id, provider_task_url, prospects_found, prospects_saved, duplicates_skipped, errors, started_at, completed_at";
 const miaKnowledgeBaseSelect = "id, category, title, question, approved_answer, keywords, source, status, last_updated, priority, confidence_threshold, created_at, updated_at";
 const miaVisitorQuestionSelect = "id, visitor_question, mia_answer, matched_knowledge_base_entries, confidence_score, was_answered, needs_review, visitor_name, organisation, email, phone, course_interest, number_of_participants, location, preferred_dates, urgency, notes, status, created_at, updated_at";
-const ellisEmailSelect = "id, owner_id, mailbox_connection_id, external_message_id, source, sender_name, sender_email, subject, received_at, raw_excerpt, summary, category, priority, confidence_score, recommended_action, requires_review, review_status, reasoning_metadata, created_at, updated_at";
-const ellisTaskSelect = "id, owner_id, related_email_id, title, description, due_date, priority, status, assigned_user, created_at, updated_at";
+const ellisEmailSelect = "id, owner_id, mailbox_connection_id, external_message_id, source, sender_name, sender_email, subject, received_at, raw_excerpt, summary, category, priority, confidence_score, recommended_action, requires_review, review_status, reasoning_metadata, contact_id, organisation_id, assigned_route, crm_enriched_at, created_at, updated_at";
+const ellisTaskSelect = "id, owner_id, related_email_id, contact_id, organisation_id, title, description, due_date, priority, status, assigned_user, created_at, updated_at";
 const ellisBriefingSelect = "id, owner_id, briefing_date, summary, metrics, urgent_emails, recommendations, status, created_at, updated_at";
 const ellisActivitySelect = "id, owner_id, email_triage_id, task_id, action_type, summary, metadata, created_at";
 const mailboxConnectionSelect = "id, owner_id, provider, mailbox_email, display_name, status, scopes, token_expires_at, last_synced_at, metadata, created_at, updated_at";
+const crmContactSelect = "id, owner_id, full_name, email_address, phone_number, organisation_id, organisation, job_title, contact_type, tags, notes, first_contact_date, last_contact_date, interaction_count, enquiry_count, booking_count, estimated_value, relationship_score, relationship_category, status, created_at, updated_at";
+const crmOrganisationSelect = "id, name, organisation_type, contact_name, contact_email, phone, website, notes, first_contact_date, last_contact_date, interaction_count, enquiries_received, bookings_completed, estimated_lifetime_value, relationship_score, updated_at";
+const crmInteractionSelect = "id, owner_id, contact_id, organisation_id, email_triage_id, assigned_user, opportunity_reference, interaction_type, subject, summary, metadata, occurred_at, created_at";
+const crmInsightSelect = "id, owner_id, contact_id, organisation_id, insight_type, insight_text, priority, status, metadata, created_at, updated_at";
+const ellisLearningEventSelect = "id, user_id, email_id, contact_id, organisation_id, original_category, original_priority, original_agent_suggestion, user_selected_agent, action_type, was_override, was_undo, confidence_before, confidence_after, metadata, created_at";
+const ellisActionHistorySelect = "id, user_id, email_id, action_taken, previous_state, new_state, is_undone, undone_at, created_at";
 const flexibleSelect = "*";
 const recommendedServices = ["First Aid", "PATS", "MiDAS", "Refresher Training", "Compliance Tracking Support", "Mixed Opportunity"];
 const rorySearchThemes = ["First Aid training prospects", "PATS training prospects", "MiDAS training prospects", "refresher training prospects", "schools/trusts", "charities/community organisations", "care providers", "hospitality/businesses"];
@@ -558,17 +564,248 @@ function buildEllisRecommendations(emails) {
     });
 }
 
+function crmRelationshipCategory(score) {
+  if (score >= 80) return "Critical";
+  if (score >= 55) return "High Value";
+  if (score >= 30) return "Medium Value";
+  if (score > 0) return "Low Value";
+  return "Unknown";
+}
+
+function crmContactType(email) {
+  if (email.category === "Council / Local Authority") return "Council";
+  if (email.category === "School / Academy Trust") return "School";
+  if (email.category === "Supplier" || email.category === "Invoice / Payment") return "Supplier";
+  if (["Customer Enquiry", "Booking Request", "Follow-Up Required"].includes(email.category)) return "Customer";
+  return "Other";
+}
+
+function domainOrganisationName(senderEmail) {
+  const domain = String(senderEmail || "").split("@")[1]?.toLowerCase() || "";
+  if (!domain || ["gmail.com", "googlemail.com", "hotmail.co.uk", "hotmail.com", "outlook.com", "yahoo.com"].includes(domain)) return "";
+  return domain
+    .split(".")[0]
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => sentenceCase(part))
+    .join(" ");
+}
+
+function ellisRouteForEmail(email) {
+  if (email.category === "Booking Request") return "Theo";
+  if (["Customer Enquiry", "Follow-Up Required"].includes(email.category)) return "Mia";
+  if (email.category === "Compliance / Legal") return "Marvin";
+  if (["Invoice / Payment", "Council / Local Authority", "School / Academy Trust"].includes(email.category)) return "Marvin";
+  return "Ellis";
+}
+
+async function findOrCreateCrmOrganisation(supabase, email) {
+  const senderEmail = String(email.sender_email || "").trim().toLowerCase();
+  const domain = senderEmail.split("@")[1] || "";
+  if (!domain || ["gmail.com", "googlemail.com", "hotmail.co.uk", "hotmail.com", "outlook.com", "yahoo.com", "ace-midas-training.co.uk"].includes(domain)) return null;
+  const { data: matches, error: findError } = await supabase
+    .from("organisations")
+    .select(crmOrganisationSelect)
+    .or(`contact_email.ilike.%@${domain},website.ilike.%${domain}%`)
+    .limit(1);
+  if (findError) throw findError;
+  if (matches?.[0]) return matches[0];
+  const name = domainOrganisationName(senderEmail);
+  if (!name) return null;
+  const { data: namedMatches, error: nameError } = await supabase
+    .from("organisations")
+    .select(crmOrganisationSelect)
+    .ilike("name", name)
+    .limit(1);
+  if (nameError) throw nameError;
+  if (namedMatches?.[0]) return namedMatches[0];
+  const now = new Date().toISOString();
+  const { data, error } = await supabase.from("organisations").insert({
+    name,
+    organisation_type: crmContactType(email) === "Council" ? "Local Authority" : crmContactType(email),
+    contact_name: email.sender_name || null,
+    contact_email: senderEmail,
+    first_contact_date: now,
+    last_contact_date: now,
+    updated_at: now
+  }).select(crmOrganisationSelect).single();
+  if (error) throw error;
+  return data;
+}
+
+async function refreshCrmRelationship(supabase, contactId, organisationId) {
+  if (!contactId) return;
+  const { data: interactions, error } = await supabase
+    .from("crm_interactions")
+    .select("id, interaction_type, occurred_at")
+    .eq("contact_id", contactId);
+  if (error) throw error;
+  const list = interactions || [];
+  const enquiryCount = list.filter((interaction) => ["Email", "Enquiry"].includes(interaction.interaction_type)).length;
+  const bookingCount = list.filter((interaction) => interaction.interaction_type === "Booking").length;
+  const recent = list.some((interaction) => new Date(interaction.occurred_at).getTime() >= Date.now() - 30 * 86400000);
+  const score = Math.min(100, list.length * 4 + enquiryCount * 5 + bookingCount * 18 + (recent ? 10 : 0));
+  const category = crmRelationshipCategory(score);
+  const now = new Date().toISOString();
+  const { error: contactError } = await supabase.from("crm_contacts").update({
+    interaction_count: list.length,
+    enquiry_count: enquiryCount,
+    booking_count: bookingCount,
+    relationship_score: score,
+    relationship_category: category,
+    last_contact_date: now,
+    updated_at: now
+  }).eq("id", contactId);
+  if (contactError) throw contactError;
+  if (list.length >= 2) {
+    const insight = {
+      contact_id: contactId,
+      organisation_id: organisationId || null,
+      insight_type: "repeat_contact_activity",
+      insight_text: `This contact has ${list.length} recorded interaction(s), including ${enquiryCount} enquiry interaction(s).`,
+      priority: list.length >= 5 ? "High" : "Medium",
+      status: "Active",
+      metadata: { interaction_count: list.length, enquiry_count: enquiryCount, booking_count: bookingCount },
+      updated_at: now
+    };
+    const { data: existingInsight, error: insightFindError } = await supabase
+      .from("crm_insights")
+      .select("id")
+      .eq("contact_id", contactId)
+      .eq("insight_type", "repeat_contact_activity")
+      .maybeSingle();
+    if (insightFindError) throw insightFindError;
+    const { error: insightError } = existingInsight
+      ? await supabase.from("crm_insights").update(insight).eq("id", existingInsight.id)
+      : await supabase.from("crm_insights").insert(insight);
+    if (insightError) throw insightError;
+  }
+  if (organisationId) {
+    const { data: organisationInteractions, error: organisationError } = await supabase
+      .from("crm_interactions")
+      .select("id, interaction_type")
+      .eq("organisation_id", organisationId);
+    if (organisationError) throw organisationError;
+    const organisationList = organisationInteractions || [];
+    const organisationScore = Math.min(100, organisationList.length * 5 + (recent ? 10 : 0));
+    const { error: updateOrganisationError } = await supabase.from("organisations").update({
+      interaction_count: organisationList.length,
+      enquiries_received: organisationList.filter((interaction) => ["Email", "Enquiry"].includes(interaction.interaction_type)).length,
+      bookings_completed: organisationList.filter((interaction) => interaction.interaction_type === "Booking").length,
+      relationship_score: organisationScore,
+      last_contact_date: now,
+      updated_at: now
+    }).eq("id", organisationId);
+    if (updateOrganisationError) throw updateOrganisationError;
+  }
+  await supabase.from("relationship_scores").insert({
+    contact_id: contactId,
+    organisation_id: organisationId || null,
+    score,
+    category,
+    factors: { interactions: list.length, enquiries: enquiryCount, bookings: bookingCount, recent_contact: recent }
+  });
+}
+
+async function enrichEllisCrmMemory(supabase) {
+  const { data: pending, error } = await supabase
+    .from("email_triage")
+    .select(ellisEmailSelect)
+    .is("crm_enriched_at", null)
+    .not("category", "in", '("Likely Spam","Marketing","Sales Pitch")')
+    .order("received_at", { ascending: true })
+    .limit(100);
+  if (error) throw error;
+  for (const email of pending || []) {
+    const senderEmail = String(email.sender_email || "").trim().toLowerCase();
+    if (!senderEmail) continue;
+    const organisation = await findOrCreateCrmOrganisation(supabase, email);
+    const { data: existingContacts, error: findError } = await supabase
+      .from("crm_contacts")
+      .select(crmContactSelect)
+      .ilike("email_address", senderEmail)
+      .limit(1);
+    if (findError) throw findError;
+    const now = new Date().toISOString();
+    let contact = existingContacts?.[0] || null;
+    if (!contact) {
+      const { data, error: insertError } = await supabase.from("crm_contacts").insert({
+        full_name: email.sender_name || null,
+        email_address: senderEmail,
+        organisation_id: organisation?.id || null,
+        organisation: organisation?.name || null,
+        contact_type: crmContactType(email),
+        first_contact_date: email.received_at || now,
+        last_contact_date: email.received_at || now
+      }).select(crmContactSelect).single();
+      if (insertError) throw insertError;
+      contact = data;
+    }
+    const route = ellisRouteForEmail(email);
+    const { error: interactionError } = await supabase.from("crm_interactions").upsert({
+      contact_id: contact.id,
+      organisation_id: organisation?.id || contact.organisation_id || null,
+      email_triage_id: email.id,
+      assigned_user: route,
+      interaction_type: ["Booking Request", "Customer Enquiry", "Follow-Up Required"].includes(email.category) ? "Enquiry" : "Email",
+      subject: email.subject,
+      summary: email.summary,
+      metadata: { category: email.category, priority: email.priority, source: email.source },
+      occurred_at: email.received_at || now
+    }, { onConflict: "email_triage_id" });
+    if (interactionError) throw interactionError;
+    const organisationId = organisation?.id || contact.organisation_id || null;
+    const { error: enrichError } = await supabase.from("email_triage").update({
+      contact_id: contact.id,
+      organisation_id: organisationId,
+      assigned_route: route,
+      crm_enriched_at: now
+    }).eq("id", email.id);
+    if (enrichError) throw enrichError;
+    await refreshCrmRelationship(supabase, contact.id, organisationId);
+  }
+}
+
+function buildEllisCrmMetrics(contacts, organisations, interactions, learningEvents) {
+  const contactList = Array.isArray(contacts) ? contacts : [];
+  const organisationList = Array.isArray(organisations) ? organisations : [];
+  const learningList = Array.isArray(learningEvents) ? learningEvents : [];
+  const confirmed = learningList.filter((event) => !event.was_undo).length;
+  const overrides = learningList.filter((event) => event.was_override && !event.was_undo).length;
+  return {
+    contact_count: contactList.length,
+    organisation_count: organisationList.length,
+    interaction_count: Array.isArray(interactions) ? interactions.length : 0,
+    high_value_contacts: contactList.filter((contact) => ["Critical", "High Value"].includes(contact.relationship_category)).length,
+    total_learning_events: learningList.length,
+    confirmed_patterns: confirmed,
+    routing_accuracy: confirmed ? Math.round(((confirmed - overrides) / confirmed) * 100) : 0,
+    auto_routing_stage: confirmed >= 150 ? 4 : confirmed >= 76 ? 3 : confirmed >= 26 ? 2 : 1
+  };
+}
+
 async function getEllisOperations(supabase) {
-  const [emailsResult, tasksResult, briefingsResult, activityResult, connectionsResult] = await Promise.all([
+  await enrichEllisCrmMemory(supabase);
+  const [emailsResult, tasksResult, briefingsResult, activityResult, connectionsResult, contactsResult, organisationsResult, interactionsResult, insightsResult, learningResult, historyResult] = await Promise.all([
     supabase.from("email_triage").select(ellisEmailSelect).order("received_at", { ascending: false }).limit(300),
     supabase.from("ellis_tasks").select(ellisTaskSelect).order("created_at", { ascending: false }).limit(200),
     supabase.from("ellis_daily_briefings").select(ellisBriefingSelect).order("briefing_date", { ascending: false }).order("created_at", { ascending: false }).limit(30),
     supabase.from("ellis_activity_log").select(ellisActivitySelect).order("created_at", { ascending: false }).limit(200),
-    supabase.from("mailbox_connections").select(mailboxConnectionSelect).order("created_at", { ascending: false }).limit(25)
+    supabase.from("mailbox_connections").select(mailboxConnectionSelect).order("created_at", { ascending: false }).limit(25),
+    supabase.from("crm_contacts").select(crmContactSelect).order("relationship_score", { ascending: false }).limit(200),
+    supabase.from("organisations").select(crmOrganisationSelect).order("relationship_score", { ascending: false }).limit(200),
+    supabase.from("crm_interactions").select(crmInteractionSelect).order("occurred_at", { ascending: false }).limit(300),
+    supabase.from("crm_insights").select(crmInsightSelect).eq("status", "Active").order("created_at", { ascending: false }).limit(100),
+    supabase.from("ellis_learning_events").select(ellisLearningEventSelect).order("created_at", { ascending: false }).limit(200),
+    supabase.from("ellis_action_history").select(ellisActionHistorySelect).order("created_at", { ascending: false }).limit(200)
   ]);
-  const error = emailsResult.error || tasksResult.error || briefingsResult.error || activityResult.error || connectionsResult.error;
+  const error = emailsResult.error || tasksResult.error || briefingsResult.error || activityResult.error || connectionsResult.error || contactsResult.error || organisationsResult.error || interactionsResult.error || insightsResult.error || learningResult.error || historyResult.error;
   if (error) throw error;
   const emails = emailsResult.data || [];
+  const contacts = contactsResult.data || [];
+  const organisations = organisationsResult.data || [];
+  const interactions = interactionsResult.data || [];
+  const learningEvents = learningResult.data || [];
   return {
     success: true,
     emails,
@@ -577,7 +814,16 @@ async function getEllisOperations(supabase) {
     activity: activityResult.data || [],
     connections: connectionsResult.data || [],
     metrics: buildEllisMetrics(emails),
-    recommendations: buildEllisRecommendations(emails)
+    recommendations: buildEllisRecommendations(emails),
+    crm: {
+      contacts,
+      organisations,
+      interactions,
+      insights: insightsResult.data || [],
+      learning_events: learningEvents,
+      action_history: historyResult.data || [],
+      metrics: buildEllisCrmMetrics(contacts, organisations, interactions, learningEvents)
+    }
   };
 }
 
@@ -606,14 +852,43 @@ async function saveEllisEmail(supabase, payload) {
 async function updateEllisEmail(supabase, payload) {
   const id = payload?.id;
   if (!id) throw new Error("Email triage id is required.");
+  const { data: previous, error: previousError } = await supabase.from("email_triage").select(ellisEmailSelect).eq("id", id).single();
+  if (previousError) throw previousError;
   const updates = { updated_at: new Date().toISOString() };
   if (payload.category) updates.category = normaliseEllisChoice(payload.category, ellisCategories, "Review Later");
   if (payload.priority) updates.priority = normaliseEllisChoice(payload.priority, ellisPriorities, "Medium");
   if (payload.recommended_action) updates.recommended_action = normaliseEllisChoice(payload.recommended_action, ellisActions, "Review");
   if (payload.review_status) updates.review_status = normaliseEllisChoice(payload.review_status, ellisReviewStatuses, "Pending");
+  if (payload.assigned_route) updates.assigned_route = normaliseEllisChoice(payload.assigned_route, ["Ellis", "Mia", "Theo", "Rory", "Ava", "Marvin"], "Ellis");
   if (Object.prototype.hasOwnProperty.call(payload, "requires_review")) updates.requires_review = Boolean(payload.requires_review);
   const { data, error } = await supabase.from("email_triage").update(updates).eq("id", id).select(ellisEmailSelect).single();
   if (error) throw error;
+  const changedFields = Object.keys(updates).filter((key) => key !== "updated_at" && previous[key] !== data[key]);
+  if (changedFields.length) {
+    const wasOverride = changedFields.some((key) => ["category", "priority", "assigned_route"].includes(key));
+    const { error: historyError } = await supabase.from("ellis_action_history").insert({
+      email_id: data.id,
+      action_taken: changedFields.join(", "),
+      previous_state: previous,
+      new_state: data
+    });
+    if (historyError) throw historyError;
+    const { error: learningError } = await supabase.from("ellis_learning_events").insert({
+      email_id: data.id,
+      contact_id: data.contact_id || null,
+      organisation_id: data.organisation_id || null,
+      original_category: previous.category,
+      original_priority: previous.priority,
+      original_agent_suggestion: previous.assigned_route || "Ellis",
+      user_selected_agent: data.assigned_route || previous.assigned_route || "Ellis",
+      action_type: "email_review_decision",
+      was_override: wasOverride,
+      confidence_before: previous.confidence_score,
+      confidence_after: data.confidence_score,
+      metadata: { changed_fields: changedFields, review_status: data.review_status }
+    });
+    if (learningError) throw learningError;
+  }
   await insertEllisActivity(supabase, {
     owner_id: data.owner_id,
     email_triage_id: data.id,
@@ -624,11 +899,65 @@ async function updateEllisEmail(supabase, payload) {
   return getEllisOperations(supabase);
 }
 
+async function undoEllisEmailAction(supabase, payload) {
+  const emailId = payload?.id;
+  if (!emailId) throw new Error("Email triage id is required.");
+  const { data: history, error: historyError } = await supabase
+    .from("ellis_action_history")
+    .select(ellisActionHistorySelect)
+    .eq("email_id", emailId)
+    .eq("is_undone", false)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (historyError) throw historyError;
+  if (!history) throw new Error("No Ellis action is available to undo.");
+  const previous = history.previous_state || {};
+  const restore = {
+    category: previous.category || "Review Later",
+    priority: previous.priority || "Medium",
+    recommended_action: previous.recommended_action || "Review",
+    requires_review: previous.requires_review !== false,
+    review_status: previous.review_status || "Pending",
+    assigned_route: previous.assigned_route || "Ellis",
+    updated_at: new Date().toISOString()
+  };
+  const { data, error } = await supabase.from("email_triage").update(restore).eq("id", emailId).select(ellisEmailSelect).single();
+  if (error) throw error;
+  const { error: markError } = await supabase.from("ellis_action_history").update({ is_undone: true, undone_at: new Date().toISOString() }).eq("id", history.id);
+  if (markError) throw markError;
+  const { error: learningError } = await supabase.from("ellis_learning_events").insert({
+    email_id: data.id,
+    contact_id: data.contact_id || null,
+    organisation_id: data.organisation_id || null,
+    original_category: history.new_state?.category || null,
+    original_priority: history.new_state?.priority || null,
+    original_agent_suggestion: history.new_state?.assigned_route || null,
+    user_selected_agent: restore.assigned_route,
+    action_type: "undo_email_action",
+    was_override: false,
+    was_undo: true,
+    confidence_before: data.confidence_score,
+    confidence_after: data.confidence_score,
+    metadata: { restored_action_history_id: history.id }
+  });
+  if (learningError) throw learningError;
+  await insertEllisActivity(supabase, {
+    email_triage_id: data.id,
+    action_type: "email_action_undone",
+    summary: `Previous Ellis action restored for "${data.subject}".`,
+    metadata: { restored_action_history_id: history.id }
+  });
+  return getEllisOperations(supabase);
+}
+
 async function createEllisTask(supabase, payload) {
   const task = payload?.task || payload || {};
   const row = {
     owner_id: task.owner_id || null,
     related_email_id: task.related_email_id || null,
+    contact_id: task.contact_id || null,
+    organisation_id: task.organisation_id || null,
     title: String(task.title || "").trim(),
     description: String(task.description || "").trim() || null,
     due_date: task.due_date || null,
@@ -3343,6 +3672,7 @@ export default async function handler(req, res) {
       "get-ellis-operations": getEllisOperations,
       "save-ellis-email": saveEllisEmail,
       "update-ellis-email": updateEllisEmail,
+      "undo-ellis-email-action": undoEllisEmailAction,
       "create-ellis-task": createEllisTask,
       "update-ellis-task": updateEllisTask,
       "generate-ellis-briefing": generateEllisBriefing,
