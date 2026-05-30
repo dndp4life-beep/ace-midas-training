@@ -715,13 +715,15 @@ async function generateEllisBriefing(supabase) {
 async function syncEllisInbox() {
   const supabaseUrl = process.env.SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const syncSecret = process.env.ELLIS_SYNC_SECRET;
   if (!supabaseUrl || !serviceRoleKey) throw new Error("Supabase server configuration is missing.");
+  if (!syncSecret) throw new Error("Ellis inbox sync is not configured. Missing ELLIS_SYNC_SECRET.");
 
   const response = await fetch(`${supabaseUrl}/functions/v1/sync-ellis-inbox`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${serviceRoleKey}`,
       apikey: serviceRoleKey,
+      "x-ellis-sync-secret": syncSecret,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({ source: "back_office_manual_sync" })
