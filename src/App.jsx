@@ -1008,6 +1008,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const [ellisConnections, setEllisConnections] = useState([]);
   const [ellisMetrics, setEllisMetrics] = useState({});
   const [ellisRecommendations, setEllisRecommendations] = useState([]);
+  const [ellisCrm, setEllisCrm] = useState({});
   const [ellisBusy, setEllisBusy] = useState("");
   const [ellisSearch, setEllisSearch] = useState("");
   const [ellisCategoryFilter, setEllisCategoryFilter] = useState("");
@@ -1193,6 +1194,14 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const safeEllisBriefings = asArray(ellisBriefings).map((briefing) => ({ ...asObject(briefing), metrics: asObject(asObject(briefing).metrics), urgent_emails: asArray(asObject(briefing).urgent_emails), recommendations: asArray(asObject(briefing).recommendations) }));
   const safeEllisActivity = asArray(ellisActivity).map((entry) => ({ ...asObject(entry), metadata: asObject(asObject(entry).metadata) }));
   const safeEllisConnections = asArray(ellisConnections).map((connection) => asObject(connection));
+  const safeEllisCrm = asObject(ellisCrm);
+  const safeEllisCrmContacts = asArray(safeEllisCrm.contacts).map((contact) => asObject(contact));
+  const safeEllisCrmOrganisations = asArray(safeEllisCrm.organisations).map((organisation) => asObject(organisation));
+  const safeEllisCrmInteractions = asArray(safeEllisCrm.interactions).map((interaction) => asObject(interaction));
+  const safeEllisCrmInsights = asArray(safeEllisCrm.insights).map((insight) => asObject(insight));
+  const safeEllisLearningEvents = asArray(safeEllisCrm.learning_events).map((event) => asObject(event));
+  const safeEllisActionHistory = asArray(safeEllisCrm.action_history).map((history) => asObject(history));
+  const ellisCrmMetrics = asObject(safeEllisCrm.metrics);
   const ellisCategoryOptions = ["High Priority", "Customer Enquiry", "Booking Request", "Council / Local Authority", "School / Academy Trust", "Supplier", "Invoice / Payment", "Compliance / Legal", "System Alert", "Internal Communication", "Follow-Up Required", "Marketing", "Sales Pitch", "Likely Spam", "Review Later"];
   const ellisPriorityOptions = ["Critical", "High", "Medium", "Low"];
   const filteredEllisEmails = safeEllisEmails.filter((email) => {
@@ -1204,6 +1213,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   });
   const ellisReviewQueue = filteredEllisEmails.filter((email) => email.requires_review && email.review_status !== "Reviewed");
   const latestEllisBriefing = safeEllisBriefings[0] || null;
+  const ellisRouteOptions = ["Ellis", "Mia", "Theo", "Rory", "Ava", "Marvin"];
   const miaNeedsReviewQuestions = safeMiaVisitorQuestions.filter((question) => question.needs_review || question.status === "Needs admin review");
   const miaLeadQuestions = safeMiaVisitorQuestions.filter((question) => question.email || question.phone || question.organisation);
   const safeOnboarding = asArray(onboarding).map((item) => asObject(item));
@@ -2351,6 +2361,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     setEllisConnections(result.connections || []);
     setEllisMetrics(result.metrics || {});
     setEllisRecommendations(result.recommendations || []);
+    setEllisCrm(result.crm || {});
   }
 
   async function loadEllisOperations({ quiet = false } = {}) {
@@ -2422,6 +2433,8 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
       const { response, result } = await callAdminAction("create-ellis-task", {
         task: {
           related_email_id: email.id,
+          contact_id: email.contact_id || null,
+          organisation_id: email.organisation_id || null,
           title: `Follow up ${email.sender_name || email.sender_email}: ${email.subject}`,
           description: email.summary,
           due_date: due.toISOString().slice(0, 10),
@@ -2440,6 +2453,25 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     } catch (error) {
       console.error("Ellis follow-up task error:", error);
       showMessage("error", "Could not create follow-up task.");
+    } finally {
+      setEllisBusy("");
+    }
+  }
+
+  async function undoEllisEmailAction(email) {
+    setEllisBusy(email.id);
+    try {
+      const { response, result } = await callAdminAction("undo-ellis-email-action", { id: email.id });
+      if (!response.ok) {
+        console.error("Ellis undo error:", result);
+        showMessage("error", result.error || "Could not restore the previous Ellis decision.");
+        return;
+      }
+      applyEllisOperationsResult(result);
+      showMessage("success", "Previous Ellis decision restored.");
+    } catch (error) {
+      console.error("Ellis undo error:", error);
+      showMessage("error", "Could not restore the previous Ellis decision.");
     } finally {
       setEllisBusy("");
     }
@@ -4641,6 +4673,11 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                           <label className="grid gap-2 text-sm font-bold text-slate-700">Visual style<textarea value={niaCurrentDraft.visual_style || ""} onChange={(e) => updateNiaCurrentDraft("visual_style", e.target.value)} rows={4} className="rounded-xl border border-slate-200 p-3 font-normal" /></label>
                           <label className="grid gap-2 text-sm font-bold text-slate-700">Image prompt<textarea value={niaCurrentDraft.image_prompt || ""} onChange={(e) => updateNiaCurrentDraft("image_prompt", e.target.value)} rows={6} className="rounded-xl border border-slate-200 p-3 font-normal" /></label>
                         </div>
+                        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                          <select value={email.category || "Review Later"} onChange={(e) => updateEllisEmail(email, { category: e.target.value }, "Ellis category corrected and saved as a learning event.")} disabled={ellisBusy === email.id} className="rounded-lg border border-slate-300 bg-white p-2 text-xs font-bold text-slate-700 disabled:opacity-60">{ellisCategoryOptions.map((category) => <option key={category}>{category}</option>)}</select>
+                          <select value={email.priority || "Medium"} onChange={(e) => updateEllisEmail(email, { priority: e.target.value }, "Ellis priority corrected and saved as a learning event.")} disabled={ellisBusy === email.id} className="rounded-lg border border-slate-300 bg-white p-2 text-xs font-bold text-slate-700 disabled:opacity-60">{ellisPriorityOptions.map((priority) => <option key={priority}>{priority}</option>)}</select>
+                          <select value={email.assigned_route || "Ellis"} onChange={(e) => updateEllisEmail(email, { assigned_route: e.target.value }, "Ellis route corrected and saved as a learning event.")} disabled={ellisBusy === email.id} className="rounded-lg border border-slate-300 bg-white p-2 text-xs font-bold text-slate-700 disabled:opacity-60">{ellisRouteOptions.map((route) => <option key={route}>{route}</option>)}</select>
+                        </div>
                         <div className="mt-4 flex flex-wrap gap-2">
                           <button type="button" onClick={() => generateNiaImagePrompt(niaCurrentDraft)} disabled={Boolean(niaBusy)} className="rounded-lg bg-fuchsia-700 px-4 py-2 text-xs font-black text-white disabled:opacity-60">Generate Image Prompt</button>
                           <button type="button" onClick={() => copyNiaImagePrompt(niaCurrentDraft)} disabled={!niaCurrentDraft.image_prompt} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-black text-slate-700 disabled:opacity-50">Copy Image Prompt</button>
@@ -5145,6 +5182,76 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                     </div>
                   </section>
 
+                  <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <h3 className="text-xl font-black">CRM Intelligence</h3>
+                        <p className="mt-1 text-sm font-semibold text-slate-600">Ellis builds organisational memory from useful ACE MiDAS communications. Spam and marketing messages stay outside relationship scoring.</p>
+                      </div>
+                      <span className="rounded-full bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-800">Structured memory active</span>
+                    </div>
+                    <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      {[
+                        ["Contacts", ellisCrmMetrics.contact_count || 0, "bg-blue-50 text-blue-800"],
+                        ["Organisations", ellisCrmMetrics.organisation_count || 0, "bg-emerald-50 text-emerald-800"],
+                        ["Interactions", ellisCrmMetrics.interaction_count || 0, "bg-slate-50 text-slate-800"],
+                        ["High-value contacts", ellisCrmMetrics.high_value_contacts || 0, "bg-amber-50 text-amber-800"],
+                      ].map(([label, value, colour]) => <div key={label} className={`rounded-xl border border-slate-200 p-4 ${colour}`}><p className="text-xs font-black uppercase">{label}</p><p className="mt-2 text-3xl font-black">{value}</p></div>)}
+                    </div>
+                    <div className="mt-5 grid gap-4 xl:grid-cols-3">
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <h4 className="font-black">Top Contacts</h4>
+                        <div className="mt-3 grid gap-2">
+                          {safeEllisCrmContacts.length ? safeEllisCrmContacts.slice(0, 6).map((contact) => <div key={contact.id} className="rounded-lg bg-white p-3 text-sm"><div className="flex items-start justify-between gap-2"><div><p className="font-black">{safeText(contact.full_name, contact.email_address || "Unknown contact")}</p><p className="mt-1 text-xs font-bold text-slate-500">{safeText(contact.organisation, safeText(contact.contact_type, "Other"))}</p></div><span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-black text-emerald-800">{Number(contact.relationship_score || 0)}</span></div></div>) : <p className="text-sm font-semibold text-slate-600">No contacts recorded yet.</p>}
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <h4 className="font-black">Top Organisations</h4>
+                        <div className="mt-3 grid gap-2">
+                          {safeEllisCrmOrganisations.length ? safeEllisCrmOrganisations.slice(0, 6).map((organisation) => <div key={organisation.id} className="rounded-lg bg-white p-3 text-sm"><div className="flex items-start justify-between gap-2"><div><p className="font-black">{safeText(organisation.name, "Unknown organisation")}</p><p className="mt-1 text-xs font-bold text-slate-500">{safeText(organisation.organisation_type, "Other")} · {Number(organisation.interaction_count || 0)} interaction(s)</p></div><span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-black text-blue-800">{Number(organisation.relationship_score || 0)}</span></div></div>) : <p className="text-sm font-semibold text-slate-600">No organisations recorded yet.</p>}
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <h4 className="font-black">Recent Interactions</h4>
+                        <div className="mt-3 grid gap-2">
+                          {safeEllisCrmInteractions.length ? safeEllisCrmInteractions.slice(0, 6).map((interaction) => <div key={interaction.id} className="rounded-lg bg-white p-3 text-sm"><p className="font-black">{safeText(interaction.subject, "Interaction")}</p><p className="mt-1 text-xs font-bold text-slate-500">{safeText(interaction.assigned_user, "Ellis")} · {formatDisplayDateTime(interaction.occurred_at)}</p></div>) : <p className="text-sm font-semibold text-slate-600">No interactions recorded yet.</p>}
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <h3 className="text-xl font-black">Ellis Learning Dashboard</h3>
+                        <p className="mt-1 text-sm font-semibold text-slate-600">Ellis learns from your confirmed routing, category and priority decisions. Undo actions are recorded but never treated as positive training signals.</p>
+                      </div>
+                      <span className="rounded-full bg-blue-50 px-3 py-2 text-xs font-black text-blue-800">Stage {Number(ellisCrmMetrics.auto_routing_stage || 1)} · Recommend only</span>
+                    </div>
+                    <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      {[
+                        ["Learning events", ellisCrmMetrics.total_learning_events || 0],
+                        ["Confirmed patterns", ellisCrmMetrics.confirmed_patterns || 0],
+                        ["Routing accuracy", `${Number(ellisCrmMetrics.routing_accuracy || 0)}%`],
+                        ["Recent undo actions", safeEllisLearningEvents.filter((event) => event.was_undo).length],
+                      ].map(([label, value]) => <div key={label} className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-500">{label}</p><p className="mt-2 text-3xl font-black">{value}</p></div>)}
+                    </div>
+                    <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <h4 className="font-black">Recent Overrides</h4>
+                        <div className="mt-3 grid gap-2">
+                          {safeEllisLearningEvents.filter((event) => event.was_override && !event.was_undo).length ? safeEllisLearningEvents.filter((event) => event.was_override && !event.was_undo).slice(0, 6).map((event) => <p key={event.id} className="rounded-lg bg-white p-3 text-sm font-semibold text-slate-700">{safeText(event.original_category, "Uncategorised")} → {safeText(event.user_selected_agent, "Ellis")} <span className="block text-xs text-slate-500">{formatDisplayDateTime(event.created_at)}</span></p>) : <p className="text-sm font-semibold text-slate-600">No routing overrides yet.</p>}
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <h4 className="font-black">Active Insights</h4>
+                        <div className="mt-3 grid gap-2">
+                          {safeEllisCrmInsights.length ? safeEllisCrmInsights.slice(0, 6).map((insight) => <p key={insight.id} className="rounded-lg bg-white p-3 text-sm font-semibold text-slate-700">{safeText(insight.insight_text, "No insight text")}</p>) : <p className="text-sm font-semibold text-slate-600">Insights will appear as organisational history grows.</p>}
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
                   <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
                     <h3 className="text-xl font-black">Manual Email Intake</h3>
                     <p className="mt-2 text-sm font-semibold leading-relaxed text-slate-600">Manual intake remains available alongside the read-only Livemail sync, so you can test Ellis classifications safely.</p>
@@ -5197,6 +5304,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                           <button type="button" onClick={() => updateEllisEmail(email, { review_status: "Archive Suggested", recommended_action: "Archive Suggestion", requires_review: true }, "Archive suggestion saved for review.")} disabled={ellisBusy === email.id} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-60">Archive Suggestion</button>
                           <button type="button" onClick={() => updateEllisEmail(email, { category: "Marketing", review_status: "Marketing", recommended_action: "Mark Marketing", requires_review: false }, "Email marked as marketing.")} disabled={ellisBusy === email.id} className="rounded-lg border border-cyan-300 bg-white px-3 py-2 text-xs font-black text-cyan-800 disabled:opacity-60">Mark Marketing</button>
                           <button type="button" onClick={() => updateEllisEmail(email, { priority: "Critical", review_status: "Escalated", recommended_action: "Mark High Priority", requires_review: true }, "Email escalated for priority review.")} disabled={ellisBusy === email.id} className="rounded-lg bg-red-600 px-3 py-2 text-xs font-black text-white disabled:opacity-60">Escalate</button>
+                          {safeEllisActionHistory.some((history) => history.email_id === email.id && !history.is_undone) ? <button type="button" onClick={() => undoEllisEmailAction(email)} disabled={ellisBusy === email.id} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-60">Undo Last Change</button> : null}
                         </div>
                       </article>) : <p className="rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-600">No emails are waiting for review.</p>}
                     </div>
