@@ -178,6 +178,9 @@ Ellis can:
 - Route research/prospect opportunities to Rory.
 - Filter spam/B2B irrelevant messages.
 - Log routing decisions.
+- Build structured contact, organisation and interaction memory from useful ACE MiDAS communications.
+- Record admin corrections as learning events.
+- Suggest routing improvements based on confirmed patterns.
 
 Ellis must not:
 
@@ -191,6 +194,8 @@ Ellis must not:
 - Send customer replies unless explicitly configured.
 - Attach private files.
 - Override Theo approval rules.
+- Treat undo actions as positive learning signals.
+- Include spam, sales pitches or marketing emails in relationship scoring.
 
 Approval rules:
 

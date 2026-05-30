@@ -163,6 +163,22 @@ The Back Office Ellis Operations Centre supports:
 
 Ellis must not automatically send, delete, archive, or unsubscribe. The Fasthosts Livemail connection uses server-side Supabase secrets for read-only IMAP access. Vercel triggers the sync using a separate `ELLIS_SYNC_SECRET` shared only between the Vercel server and Supabase Edge Function. Future Gmail and Microsoft inbox integrations must use OAuth 2.0 with PKCE and secure server-side token references. Passwords and raw OAuth tokens must never be stored in frontend code.
 
+## Ellis CRM Intelligence
+
+Ellis Phase 3 adds structured organisational memory without retraining an AI model. Useful inbox records are linked to CRM contacts, organisations and interactions. Spam and marketing messages stay outside relationship scoring.
+
+Phase 3 uses:
+
+- `crm_contacts`
+- enriched `organisations`
+- `crm_interactions`
+- `relationship_scores`
+- `crm_insights`
+- `ellis_learning_events`
+- `ellis_action_history`
+
+User corrections to category, priority and agent routing are stored as learning events. Undo actions are recorded separately and must not count as positive learning signals. Ellis remains review-first: complaints, legal matters, safeguarding, invoices, payment disputes, compliance concerns and low-confidence classifications must remain under human control.
+
 ## Important Development Rules
 
 - Do not expose secret keys in frontend code.

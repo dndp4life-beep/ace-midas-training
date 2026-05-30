@@ -98,6 +98,29 @@ The Fasthosts Livemail sync must remain read-only:
 
 Future Gmail and Microsoft 365 / Outlook connections must use OAuth 2.0 with PKCE, server-side token references, token refresh handling, and mailbox ownership. Passwords and raw OAuth tokens must not be stored in frontend code.
 
+## Ellis CRM Intelligence And Learning
+
+Useful ACE MiDAS communications may be enriched into structured CRM memory:
+
+- Contact profile
+- Organisation profile
+- Interaction history
+- Relationship score
+- Operational insight
+
+Spam, sales pitches and marketing messages must not contribute to relationship scoring.
+
+Ellis learns from explicit admin decisions:
+
+- Category corrections
+- Priority corrections
+- Agent routing changes
+- Review actions
+- Overrides
+- Undo actions
+
+Undo actions must be stored but must not count as positive learning. Ellis should progress conservatively from recommendation-only behaviour toward trusted low-risk automation. Complaints, safeguarding, legal, compliance, invoice and payment matters always require human review regardless of learned patterns.
+
 ## Mia Safe Auto-Replies
 
 Mia may auto-send safe standard emails for:
