@@ -193,7 +193,8 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = requiredSecret("SUPABASE_URL");
     const serviceRoleKey = requiredSecret("SUPABASE_SERVICE_ROLE_KEY");
-    if (req.headers.get("authorization") !== `Bearer ${serviceRoleKey}`) {
+    const syncSecret = requiredSecret("ELLIS_SYNC_SECRET");
+    if (req.headers.get("x-ellis-sync-secret") !== syncSecret) {
       return json({ error: "Unauthorized." }, 401);
     }
     const host = requiredSecret("ELLIS_IMAP_HOST");
