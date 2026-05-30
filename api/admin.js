@@ -414,16 +414,21 @@ function analyseEllisEmail(payload) {
   const systemAlert = addMatches("system_alert", ["alert", "warning", "failed", "failure", "error", "security", "login", "service interruption"]);
   const internal = addMatches("internal", ["ace midas", "internal", "team update", "staff update"]);
   const followUp = addMatches("follow_up", ["follow up", "follow-up", "following up", "reminder", "chasing", "awaiting your reply"]);
-  const salesPitch = addMatches("sales_pitch", ["increase your sales", "lead generation", "seo", "web design", "marketing services", "outsourcing", "partnership opportunity", "cold email"]);
+  const salesPitch = addMatches("unsolicited_service_offer", ["increase your sales", "lead generation", "seo", "web design", "marketing services", "outsourcing", "partnership opportunity", "cold email", "finance solution", "flexible finance", "business loan", "funding solution", "working capital", "local electrician", "electrician for", "our services", "offer you our", "we offer businesses", "grow your business", "improve your website", "free consultation"]);
   const marketing = addMatches("marketing", ["newsletter", "unsubscribe", "promotion", "special offer", "discount code", "webinar", "mailing list"]);
-  const spam = addMatches("likely_spam", ["crypto", "casino", "loan", "guest post", "buy followers", "adult", "investment opportunity", "click here immediately"]);
+  const spam = addMatches("likely_spam", ["crypto", "casino", "loan", "guest post", "buy followers", "adult", "investment opportunity", "click here immediately", "backlink"]);
 
   let category = "Review Later";
   let priority = "Medium";
   let recommendedAction = "Review";
   let confidenceScore = 48;
 
-  if (legal) {
+  if (spam || salesPitch) {
+    category = "Likely Spam";
+    priority = "Low";
+    recommendedAction = "Archive Suggestion";
+    confidenceScore = 92;
+  } else if (legal) {
     category = "Compliance / Legal";
     priority = "Critical";
     recommendedAction = "Mark High Priority";
@@ -473,16 +478,6 @@ function analyseEllisEmail(payload) {
     priority = "Medium";
     recommendedAction = "Review";
     confidenceScore = 72;
-  } else if (spam) {
-    category = "Likely Spam";
-    priority = "Low";
-    recommendedAction = "Archive Suggestion";
-    confidenceScore = 91;
-  } else if (salesPitch) {
-    category = "Sales Pitch";
-    priority = "Low";
-    recommendedAction = "Archive Suggestion";
-    confidenceScore = 84;
   } else if (marketing) {
     category = "Marketing";
     priority = "Low";
@@ -490,7 +485,7 @@ function analyseEllisEmail(payload) {
     confidenceScore = 82;
   }
 
-  const protectedReview = legal || invoice || council || school;
+  const protectedReview = !spam && !salesPitch && (legal || invoice || council || school);
   const uncertain = confidenceScore < 65;
   const requiresReview = protectedReview || uncertain || !["Marketing", "Sales Pitch", "Likely Spam"].includes(category);
   const summarySource = rawExcerpt || subject || "Email captured for review.";
