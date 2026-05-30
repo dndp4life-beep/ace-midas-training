@@ -1,0 +1,5 @@
+[functions.contact-form]
+verify_jwt = false
+
+[functions.sync-ellis-inbox]
+verify_jwt = true
