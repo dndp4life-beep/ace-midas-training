@@ -65,14 +65,25 @@ function decodeQuotedPrintable(value: string) {
 }
 
 function decodeMimeWord(value: string) {
-  return value.replace(/=\?([^?]+)\?([bBqQ])\?([^?]+)\?=/g, (_, _charset, encoding, content) => {
+  return value.replace(/=\?([^?]+)\?([bBqQ])\?([^?]+)\?=/g, (_, charset, encoding, content) => {
     try {
-      if (String(encoding).toLowerCase() === "b") return atob(content);
-      return decodeQuotedPrintable(content.replace(/_/g, " "));
+      const binary = String(encoding).toLowerCase() === "b"
+        ? atob(content)
+        : decodeQuotedPrintable(content.replace(/_/g, " "));
+      return new TextDecoder(charset).decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)));
     } catch {
       return content;
     }
   });
+}
+
+function decodeBase64(value: string) {
+  try {
+    const binary = atob(value.replace(/\s+/g, ""));
+    return new TextDecoder().decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)));
+  } catch {
+    return value;
+  }
 }
 
 function getHeader(headers: string, name: string) {
@@ -92,8 +103,8 @@ function parseSender(value: string) {
   return { sender_name: value.replace(email, "").trim(), sender_email: email.toLowerCase() };
 }
 
-function stripBody(value: string) {
-  return decodeQuotedPrintable(value)
+function cleanText(value: string) {
+  return value
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<[^>]+>/g, " ")
@@ -105,14 +116,78 @@ function stripBody(value: string) {
     .trim();
 }
 
+function splitEntity(raw: string) {
+  const separator = raw.search(/\r?\n\r?\n/);
+  if (separator < 0) return { headers: "", body: raw };
+  const separatorLength = raw.slice(separator).match(/^\r?\n\r?\n/)?.[0].length || 2;
+  return { headers: raw.slice(0, separator), body: raw.slice(separator + separatorLength) };
+}
+
+function getBoundary(contentType: string) {
+  return contentType.match(/boundary\s*=\s*(?:"([^"]+)"|([^;\s]+))/i)?.slice(1).find(Boolean) || "";
+}
+
+function decodePart(headers: string, body: string) {
+  const transferEncoding = getHeader(headers, "Content-Transfer-Encoding").toLowerCase();
+  const charset = getHeader(headers, "Content-Type").match(/charset\s*=\s*(?:"([^"]+)"|([^;\s]+))/i)?.slice(1).find(Boolean) || "utf-8";
+  if (transferEncoding === "base64") {
+    try {
+      const binary = atob(body.replace(/\s+/g, ""));
+      return new TextDecoder(charset).decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)));
+    } catch {
+      return decodeBase64(body);
+    }
+  }
+  if (transferEncoding === "quoted-printable") {
+    try {
+      const binary = decodeQuotedPrintable(body);
+      return new TextDecoder(charset).decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)));
+    } catch {
+      return decodeQuotedPrintable(body);
+    }
+  }
+  return body;
+}
+
+function extractReadableBodies(raw: string): { plain: string[]; html: string[] } {
+  const { headers, body } = splitEntity(raw);
+  const contentType = getHeader(headers, "Content-Type").toLowerCase() || "text/plain";
+  const boundary = getBoundary(contentType);
+
+  if (boundary && contentType.includes("multipart/")) {
+    const parts = body
+      .split(`--${boundary}`)
+      .map((part) => part.replace(/^\r?\n/, "").replace(/\r?\n$/, ""))
+      .filter((part) => part && part !== "--" && !part.startsWith("--"));
+    return parts.reduce((result, part) => {
+      const extracted = extractReadableBodies(part);
+      result.plain.push(...extracted.plain);
+      result.html.push(...extracted.html);
+      return result;
+    }, { plain: [] as string[], html: [] as string[] });
+  }
+
+  const decoded = decodePart(headers, body);
+  if (contentType.includes("text/plain")) return { plain: [cleanText(decoded)], html: [] };
+  if (contentType.includes("text/html")) return { plain: [], html: [cleanText(decoded)] };
+  return { plain: [], html: [] };
+}
+
+function extractReadableBody(raw: string) {
+  const extracted = extractReadableBodies(raw);
+  return [...extracted.plain, ...extracted.html]
+    .map((part) => part.trim())
+    .find(Boolean) || "No readable email body was available.";
+}
+
 function parseRawEmail(raw: string, uid: string) {
-  const [headers = "", ...bodyParts] = raw.split(/\r?\n\r?\n/);
+  const { headers } = splitEntity(raw);
   const sender = parseSender(getHeader(headers, "From"));
   const messageId = getHeader(headers, "Message-ID") || `livemail:inbox:${uid}`;
   const subject = getHeader(headers, "Subject") || "(No subject)";
   const dateHeader = getHeader(headers, "Date");
   const parsedDate = new Date(dateHeader);
-  const excerpt = stripBody(bodyParts.join("\n\n")).slice(0, 1200);
+  const excerpt = extractReadableBody(raw).slice(0, 1200);
   return {
     ...sender,
     subject,
