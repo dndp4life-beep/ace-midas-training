@@ -1,0 +1,12 @@
+create index if not exists crm_contacts_owner_id_idx on public.crm_contacts(owner_id);
+create index if not exists crm_interactions_owner_id_idx on public.crm_interactions(owner_id);
+create index if not exists crm_insights_organisation_id_idx on public.crm_insights(organisation_id);
+create index if not exists crm_insights_owner_id_idx on public.crm_insights(owner_id);
+create index if not exists relationship_scores_owner_id_idx on public.relationship_scores(owner_id);
+create index if not exists ellis_learning_events_user_id_idx on public.ellis_learning_events(user_id);
+create index if not exists ellis_learning_events_contact_id_idx on public.ellis_learning_events(contact_id);
+create index if not exists ellis_learning_events_organisation_id_idx on public.ellis_learning_events(organisation_id);
+create index if not exists ellis_action_history_user_id_idx on public.ellis_action_history(user_id);
+create index if not exists ellis_tasks_contact_id_idx on public.ellis_tasks(contact_id);
+create index if not exists ellis_tasks_organisation_id_idx on public.ellis_tasks(organisation_id);
+create index if not exists organisations_primary_contact_id_idx on public.organisations(primary_contact_id);
