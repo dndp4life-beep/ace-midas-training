@@ -56,7 +56,7 @@ Routing:
 
 ## Ellis Executive Assistant Workflow
 
-Ellis Phase 1 uses manual email intake. Live mailbox access is reserved for Phase 2.
+Ellis supports manual email intake and a read-only Fasthosts Livemail IMAP sync. The live sync imports unread inbox messages for review without changing the source mailbox.
 
 For every processed email Ellis records:
 
@@ -87,6 +87,13 @@ Ellis categories include:
 - Review Later
 
 Ellis may recommend follow-up tasks and generate internal daily briefings. Ellis must not automatically send, delete, archive, or unsubscribe. Council, local authority, school, academy trust, invoice, payment, legal, compliance, and uncertain emails always require review.
+
+The Fasthosts Livemail sync must remain read-only:
+
+- Use IMAP SSL/TLS.
+- Import with `BODY.PEEK` so messages are not marked as read.
+- Never move, delete, archive, unsubscribe, or send from the mailbox.
+- Keep mailbox credentials in Supabase Edge Function secrets only.
 
 Future Gmail and Microsoft 365 / Outlook connections must use OAuth 2.0 with PKCE, server-side token references, token refresh handling, and mailbox ownership. Passwords and raw OAuth tokens must not be stored in frontend code.
 

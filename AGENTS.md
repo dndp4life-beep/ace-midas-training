@@ -165,6 +165,7 @@ Ellis can:
 
 - Classify inbound messages.
 - Summarise manually submitted inbox emails.
+- Import unread Fasthosts Livemail inbox messages through a read-only IMAP sync.
 - Assign a category, priority, confidence score, and recommended action.
 - Generate an internal daily briefing.
 - Highlight urgent emails and recommended next steps.
@@ -184,6 +185,8 @@ Ellis must not:
 - Automatically delete emails.
 - Automatically archive emails.
 - Automatically unsubscribe contacts.
+- Mark imported mailbox emails as read.
+- Move emails between mailbox folders.
 - Confirm bookings.
 - Send customer replies unless explicitly configured.
 - Attach private files.
