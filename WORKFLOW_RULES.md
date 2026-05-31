@@ -304,6 +304,18 @@ Automation is allowed for:
 - Complaints, legal matters, safeguarding concerns, invoice disputes and payment disputes route to Marvin for review.
 - Hot opportunities include recognised prospect replies, quote requests, meeting requests, and council or school enquiries.
 
+## Mia Phase 7 Trusted Communication Rules
+
+- Mia communication automation defaults to Level 1: draft only.
+- Mia stores communication memory for drafted, approved, edited and rejected opportunity responses.
+- Trust scores are calculated per communication type from approvals, edits, overrides, rejections and successful outcomes.
+- Every Mia opportunity draft should show confidence, similarity, trust and automation eligibility reasoning.
+- Review-first follow-up sequences use Day 0, Day 7, Day 21 and Day 45 steps.
+- Sequences must stop when a reply is received, a quote or booking is requested, the contact is marked not interested or the contact is marked do not contact.
+- Restricted categories always require Marvin review regardless of trust score: complaints, legal/compliance matters, safeguarding, invoices/payments, payment disputes, council tenders, contract negotiations and low-confidence messages.
+- Higher approval levels must remain explicitly configurable. Do not silently enable auto-send during deployment.
+- Trusted sending must remain disabled by default. At Level 3 or 4, the Back Office processor may send only eligible approved drafts after explicit admin confirmation.
+
 ## Daily AI Summary Expectations
 
 Daily AI Summary should include:

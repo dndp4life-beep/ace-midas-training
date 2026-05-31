@@ -240,6 +240,25 @@ Rory prospects receive opportunity records, known prospect replies can advance t
 
 Opportunity stages are `Prospect Found`, `Outreach Sent`, `Contact Engaged`, `Information Requested`, `Quote Requested`, `Quote Sent`, `Follow-Up Due`, `Negotiation`, `Won`, `Lost`, and `Dormant`.
 
+## Mia Phase 7 Trusted Communication Automation
+
+Mia Phase 7 adds an internal learning and trust layer around reviewable opportunity drafts. The default remains Level 1: draft only.
+
+Phase 7 uses:
+
+- enriched `opportunity_response_drafts`
+- `mia_communication_settings`
+- `mia_communication_trust_profiles`
+- `mia_communication_memory`
+- `mia_follow_up_sequences`
+- `mia_follow_up_sequence_steps`
+
+Mia records approvals, edits and rejections per communication category. Drafts show confidence, similarity, trust, similar approved reply count and the reason automation is or is not eligible. Review-first follow-up sequences can prepare Day 0, 7, 21 and 45 steps without sending customer emails.
+
+Trusted sending has an explicit Back Office processor. It remains disabled at Level 1. Even at Level 3 or 4, the admin must explicitly enable automation and confirm processing before eligible approved drafts can be sent. A future phase may move this processor into a monitored background worker after sufficient review history exists.
+
+Restricted categories always remain under Marvin review: complaints, legal/compliance matters, safeguarding, invoices/payments, payment disputes, council tenders, contract negotiations and low-confidence communications.
+
 ## Important Development Rules
 
 - Do not expose secret keys in frontend code.
