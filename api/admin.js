@@ -94,6 +94,10 @@ const ellisLearningEventSelect = "id, user_id, email_id, contact_id, organisatio
 const ellisActionHistorySelect = "id, user_id, email_id, action_taken, previous_state, new_state, is_undone, undone_at, created_at";
 const ellisSyncHistorySelect = "id, provider, status, trigger_source, unread_found, imported, duplicates_skipped, errors, started_at, completed_at, created_at";
 const senderDomainIntelligenceSelect = "id, domain, organisation_name, organisation_type, suggested_category, suggested_route, domain_confidence, classification_history, interaction_count, correction_count, last_seen_at, created_at, updated_at";
+const ellisDelegationSelect = "id, email_triage_id, prospect_id, contact_id, organisation_id, sender_name, sender_email, summary, category, priority, confidence_score, recommended_agent, selected_agent, recommended_task_title, recommended_next_action, due_date_suggestion, reason_for_recommendation, handoff_note, review_status, activity_history, created_at, updated_at";
+const agentWorkQueueSelect = "id, delegation_id, linked_email_id, linked_contact_id, linked_organisation_id, prospect_id, task_title, task_description, assigned_agent, category, organisation_type, priority, due_date, status, activity_history, created_at, updated_at";
+const ellisUrgentAlertSelect = "id, email_triage_id, prospect_id, organisation_id, alert_type, prospect_name, sender_email, subject, summary, match_reason, recommended_action, status, email_notification_sent, provider_response, sent_at, created_at, updated_at";
+const ellisAlertSettingsSelect = "id, setting_key, alerts_enabled, notify_by_email, notification_email, minimum_prospect_score, warm_high_priority_only, cooldown_minutes, created_at, updated_at";
 const flexibleSelect = "*";
 const recommendedServices = ["First Aid", "PATS", "MiDAS", "Refresher Training", "Compliance Tracking Support", "Mixed Opportunity"];
 const rorySearchThemes = ["First Aid training prospects", "PATS training prospects", "MiDAS training prospects", "refresher training prospects", "schools/trusts", "charities/community organisations", "care providers", "hospitality/businesses"];
@@ -628,6 +632,43 @@ function ellisRouteForEmail(email) {
   return "Ellis";
 }
 
+function ellisDelegationSuggestion(email) {
+  const text = `${email.subject || ""} ${email.summary || email.raw_excerpt || ""}`.toLowerCase();
+  const sensitive = ["Compliance / Legal", "Invoice / Payment", "Council / Local Authority"].includes(email.category)
+    || ["complaint", "safeguarding", "payment dispute", "legal"].some((term) => text.includes(term));
+  const agent = sensitive ? "Marvin" : email.category === "Booking Request" ? "Theo" : ["Customer Enquiry", "Follow-Up Required"].includes(email.category) ? "Mia" : "Ellis";
+  const due = new Date();
+  due.setDate(due.getDate() + (["Critical", "High"].includes(email.priority) ? 1 : 3));
+  const reason = sensitive ? "Sensitive subject matter requires Marvin review." : `Ellis classified this as ${email.category || "Review Later"}.`;
+  return {
+    email_triage_id: email.id,
+    contact_id: email.contact_id || null,
+    organisation_id: email.organisation_id || null,
+    sender_name: email.sender_name,
+    sender_email: email.sender_email,
+    summary: email.summary || email.raw_excerpt,
+    category: email.category || "Review Later",
+    priority: email.priority || "Medium",
+    confidence_score: Number(email.confidence_score || 0),
+    recommended_agent: agent,
+    recommended_task_title: `${agent}: review ${email.subject || "incoming email"}`.slice(0, 180),
+    recommended_next_action: sensitive ? "Review personally before any response." : "Review the email and prepare the appropriate next step.",
+    due_date_suggestion: due.toISOString().slice(0, 10),
+    reason_for_recommendation: reason,
+    handoff_note: { what_happened: `Email received from ${email.sender_name || email.sender_email || "sender"}.`, why_it_matters: reason, recommended_next_step: `Review and approve delegation to ${agent}.`, risks: sensitive ? ["Human review required"] : ["Do not auto-send a reply"] },
+    review_status: "Pending",
+    activity_history: [{ action: "delegation_backfilled", agent, recorded_at: new Date().toISOString() }]
+  };
+}
+
+async function ensureEllisDelegations(supabase) {
+  const { data: emails, error } = await supabase.from("email_triage").select(ellisEmailSelect).order("received_at", { ascending: false }).limit(300);
+  if (error) throw error;
+  if (!emails?.length) return;
+  const { error: upsertError } = await supabase.from("ellis_delegations").upsert(emails.map(ellisDelegationSuggestion), { onConflict: "email_triage_id", ignoreDuplicates: true });
+  if (upsertError) throw upsertError;
+}
+
 function senderDomain(senderEmail) {
   return String(senderEmail || "").trim().toLowerCase().split("@")[1] || "";
 }
@@ -852,7 +893,8 @@ function buildEllisCrmMetrics(contacts, organisations, interactions, learningEve
 
 async function getEllisOperations(supabase) {
   await enrichEllisCrmMemory(supabase);
-  const [emailsResult, tasksResult, briefingsResult, activityResult, connectionsResult, contactsResult, organisationsResult, interactionsResult, insightsResult, learningResult, historyResult, syncHistoryResult, domainIntelResult] = await Promise.all([
+  await ensureEllisDelegations(supabase);
+  const [emailsResult, tasksResult, briefingsResult, activityResult, connectionsResult, contactsResult, organisationsResult, interactionsResult, insightsResult, learningResult, historyResult, syncHistoryResult, domainIntelResult, delegationsResult, workQueueResult, alertsResult, alertSettingsResult] = await Promise.all([
     supabase.from("email_triage").select(ellisEmailSelect).order("received_at", { ascending: false }).limit(300),
     supabase.from("ellis_tasks").select(ellisTaskSelect).order("created_at", { ascending: false }).limit(200),
     supabase.from("ellis_daily_briefings").select(ellisBriefingSelect).order("briefing_date", { ascending: false }).order("created_at", { ascending: false }).limit(30),
@@ -865,9 +907,13 @@ async function getEllisOperations(supabase) {
     supabase.from("ellis_learning_events").select(ellisLearningEventSelect).order("created_at", { ascending: false }).limit(200),
     supabase.from("ellis_action_history").select(ellisActionHistorySelect).order("created_at", { ascending: false }).limit(200),
     supabase.from("ellis_sync_history").select(ellisSyncHistorySelect).order("created_at", { ascending: false }).limit(30),
-    supabase.from("sender_domain_intelligence").select(senderDomainIntelligenceSelect).order("last_seen_at", { ascending: false }).limit(100)
+    supabase.from("sender_domain_intelligence").select(senderDomainIntelligenceSelect).order("last_seen_at", { ascending: false }).limit(100),
+    supabase.from("ellis_delegations").select(ellisDelegationSelect).order("created_at", { ascending: false }).limit(300),
+    supabase.from("agent_work_queue").select(agentWorkQueueSelect).order("created_at", { ascending: false }).limit(300),
+    supabase.from("ellis_urgent_alerts").select(ellisUrgentAlertSelect).order("created_at", { ascending: false }).limit(100),
+    supabase.from("ellis_alert_settings").select(ellisAlertSettingsSelect).eq("setting_key", "urgent_prospect_alerts").maybeSingle()
   ]);
-  const error = emailsResult.error || tasksResult.error || briefingsResult.error || activityResult.error || connectionsResult.error || contactsResult.error || organisationsResult.error || interactionsResult.error || insightsResult.error || learningResult.error || historyResult.error || syncHistoryResult.error || domainIntelResult.error;
+  const error = emailsResult.error || tasksResult.error || briefingsResult.error || activityResult.error || connectionsResult.error || contactsResult.error || organisationsResult.error || interactionsResult.error || insightsResult.error || learningResult.error || historyResult.error || syncHistoryResult.error || domainIntelResult.error || delegationsResult.error || workQueueResult.error || alertsResult.error || alertSettingsResult.error;
   if (error) throw error;
   const emails = emailsResult.data || [];
   const contacts = contactsResult.data || [];
@@ -885,6 +931,10 @@ async function getEllisOperations(supabase) {
     recommendations: buildEllisRecommendations(emails),
     sync_history: syncHistoryResult.data || [],
     sender_domains: domainIntelResult.data || [],
+    delegations: delegationsResult.data || [],
+    agent_work_queue: workQueueResult.data || [],
+    urgent_alerts: alertsResult.data || [],
+    alert_settings: alertSettingsResult.data || null,
     crm: {
       contacts,
       organisations,
@@ -1074,18 +1124,157 @@ async function updateEllisTask(supabase, payload) {
   return getEllisOperations(supabase);
 }
 
+function appendQueueHistory(history, action, details = {}) {
+  return [...(Array.isArray(history) ? history : []), { action, ...details, recorded_at: new Date().toISOString() }].slice(-40);
+}
+
+async function updateEllisDelegation(supabase, payload) {
+  const id = payload?.id;
+  if (!id) throw new Error("Delegation id is required.");
+  const { data: previous, error: previousError } = await supabase.from("ellis_delegations").select(ellisDelegationSelect).eq("id", id).single();
+  if (previousError) throw previousError;
+  const selectedAgent = String(payload.selected_agent || previous.selected_agent || previous.recommended_agent || "Ellis");
+  const reviewStatus = String(payload.review_status || "Reviewed");
+  const updates = {
+    selected_agent: selectedAgent,
+    review_status: reviewStatus,
+    activity_history: appendQueueHistory(previous.activity_history, reviewStatus.toLowerCase().replace(/\s+/g, "_"), { selected_agent: selectedAgent }),
+    updated_at: new Date().toISOString()
+  };
+  const { data, error } = await supabase.from("ellis_delegations").update(updates).eq("id", id).select(ellisDelegationSelect).single();
+  if (error) throw error;
+  await supabase.from("ellis_learning_events").insert({
+    email_id: data.email_triage_id,
+    contact_id: data.contact_id || null,
+    organisation_id: data.organisation_id || null,
+    original_agent_suggestion: previous.recommended_agent,
+    user_selected_agent: selectedAgent,
+    action_type: reviewStatus === "Undone" ? "undo_delegation" : "delegation_review_decision",
+    was_override: selectedAgent !== previous.recommended_agent,
+    was_undo: reviewStatus === "Undone",
+    confidence_before: previous.confidence_score,
+    confidence_after: previous.confidence_score,
+    metadata: { delegation_id: id, review_status: reviewStatus }
+  });
+  await insertEllisActivity(supabase, {
+    email_triage_id: data.email_triage_id,
+    action_type: "delegation_review_updated",
+    summary: `Delegation ${reviewStatus.toLowerCase()} for ${data.sender_email || "email"}: ${selectedAgent}.`,
+    metadata: { delegation_id: id, selected_agent: selectedAgent, review_status: reviewStatus }
+  });
+  return getEllisOperations(supabase);
+}
+
+async function approveEllisDelegation(supabase, payload) {
+  const id = payload?.id;
+  if (!id) throw new Error("Delegation id is required.");
+  const { data: delegation, error } = await supabase.from("ellis_delegations").select(ellisDelegationSelect).eq("id", id).single();
+  if (error) throw error;
+  const selectedAgent = String(payload.selected_agent || delegation.selected_agent || delegation.recommended_agent || "Ellis");
+  let organisationType = delegation.category === "Council / Local Authority"
+    ? "Local Authority"
+    : delegation.category === "School / Academy Trust"
+      ? "School / Academy Trust"
+      : "Other";
+  if (delegation.organisation_id) {
+    const { data: organisation, error: organisationError } = await supabase
+      .from("organisations")
+      .select("organisation_type")
+      .eq("id", delegation.organisation_id)
+      .maybeSingle();
+    if (organisationError) throw organisationError;
+    organisationType = organisation?.organisation_type || organisationType;
+  }
+  const queueRow = {
+    delegation_id: delegation.id,
+    linked_email_id: delegation.email_triage_id,
+    linked_contact_id: delegation.contact_id || null,
+    linked_organisation_id: delegation.organisation_id || null,
+    prospect_id: delegation.prospect_id || null,
+    task_title: delegation.recommended_task_title || `${selectedAgent}: review email from ${delegation.sender_email || "sender"}`,
+    task_description: delegation.summary || delegation.recommended_next_action,
+    assigned_agent: selectedAgent,
+    category: delegation.category,
+    organisation_type: organisationType,
+    priority: delegation.priority,
+    due_date: delegation.due_date_suggestion,
+    status: "New",
+    activity_history: [{ action: "task_created_from_approved_delegation", assigned_agent: selectedAgent, recorded_at: new Date().toISOString() }]
+  };
+  const { data: task, error: queueError } = await supabase.from("agent_work_queue").upsert(queueRow, { onConflict: "delegation_id" }).select(agentWorkQueueSelect).single();
+  if (queueError) throw queueError;
+  await supabase.from("ellis_delegations").update({
+    selected_agent: selectedAgent,
+    review_status: "Approved",
+    activity_history: appendQueueHistory(delegation.activity_history, "approved_and_task_created", { selected_agent: selectedAgent, task_id: task.id }),
+    updated_at: new Date().toISOString()
+  }).eq("id", id);
+  await supabase.from("ellis_learning_events").insert({
+    email_id: delegation.email_triage_id,
+    contact_id: delegation.contact_id || null,
+    organisation_id: delegation.organisation_id || null,
+    original_agent_suggestion: delegation.recommended_agent,
+    user_selected_agent: selectedAgent,
+    action_type: "delegation_approved",
+    was_override: selectedAgent !== delegation.recommended_agent,
+    metadata: { delegation_id: id, task_id: task.id }
+  });
+  await insertEllisActivity(supabase, {
+    email_triage_id: delegation.email_triage_id,
+    action_type: "agent_queue_task_created",
+    summary: `${selectedAgent} queue task created: ${task.task_title}.`,
+    metadata: { delegation_id: id, task_id: task.id, assigned_agent: selectedAgent }
+  });
+  return getEllisOperations(supabase);
+}
+
+async function updateAgentWorkQueueTask(supabase, payload) {
+  const id = payload?.id;
+  if (!id) throw new Error("Queue task id is required.");
+  const { data: previous, error: previousError } = await supabase.from("agent_work_queue").select(agentWorkQueueSelect).eq("id", id).single();
+  if (previousError) throw previousError;
+  const updates = { updated_at: new Date().toISOString() };
+  if (payload.status) updates.status = String(payload.status);
+  if (payload.assigned_agent) updates.assigned_agent = String(payload.assigned_agent);
+  if (payload.priority) updates.priority = normaliseEllisChoice(payload.priority, ellisPriorities, "Medium");
+  updates.activity_history = appendQueueHistory(previous.activity_history, "queue_task_updated", { status: updates.status || previous.status, assigned_agent: updates.assigned_agent || previous.assigned_agent });
+  const { data, error } = await supabase.from("agent_work_queue").update(updates).eq("id", id).select(agentWorkQueueSelect).single();
+  if (error) throw error;
+  await insertEllisActivity(supabase, { email_triage_id: data.linked_email_id, action_type: "agent_queue_task_updated", summary: `${data.assigned_agent} queue task updated: ${data.task_title}.`, metadata: updates });
+  return getEllisOperations(supabase);
+}
+
+async function saveEllisAlertSettings(supabase, payload) {
+  const settings = payload?.settings || payload || {};
+  const row = {
+    setting_key: "urgent_prospect_alerts",
+    alerts_enabled: settings.alerts_enabled !== false,
+    notify_by_email: settings.notify_by_email !== false,
+    notification_email: String(settings.notification_email || adminSummaryRecipient).trim(),
+    minimum_prospect_score: Math.max(0, Math.min(100, Number(settings.minimum_prospect_score || 75))),
+    warm_high_priority_only: settings.warm_high_priority_only !== false,
+    cooldown_minutes: Math.max(1, Number(settings.cooldown_minutes || 1440)),
+    updated_at: new Date().toISOString()
+  };
+  const { error } = await supabase.from("ellis_alert_settings").upsert(row, { onConflict: "setting_key" });
+  if (error) throw error;
+  return getEllisOperations(supabase);
+}
+
 async function generateEllisBriefing(supabase) {
-  const [emailsResult, tasksResult, insightsResult] = await Promise.all([
+  const [emailsResult, tasksResult, insightsResult, alertsResult] = await Promise.all([
     supabase.from("email_triage").select(ellisEmailSelect).order("received_at", { ascending: false }).limit(300),
     supabase.from("ellis_tasks").select(ellisTaskSelect).neq("status", "Completed").order("due_date", { ascending: true }).limit(100),
-    supabase.from("crm_insights").select(crmInsightSelect).eq("status", "Active").order("created_at", { ascending: false }).limit(20)
+    supabase.from("crm_insights").select(crmInsightSelect).eq("status", "Active").order("created_at", { ascending: false }).limit(20),
+    supabase.from("ellis_urgent_alerts").select(ellisUrgentAlertSelect).order("created_at", { ascending: false }).limit(10)
   ]);
-  const error = emailsResult.error || tasksResult.error || insightsResult.error;
+  const error = emailsResult.error || tasksResult.error || insightsResult.error || alertsResult.error;
   if (error) throw error;
   const emails = emailsResult.data;
   const list = emails || [];
   const tasks = tasksResult.data || [];
   const insights = insightsResult.data || [];
+  const alerts = alertsResult.data || [];
   const metrics = buildEllisMetrics(list);
   const urgentEmails = list.filter((email) => ["Critical", "High"].includes(email.priority)).slice(0, 8).map((email) => ({
     id: email.id,
@@ -1099,6 +1288,7 @@ async function generateEllisBriefing(supabase) {
     ...buildEllisRecommendations(list),
     ...tasks.slice(0, 3).map((task) => `Follow-up due: ${task.title}`),
     ...insights.slice(0, 3).map((insight) => `Relationship insight: ${insight.insight_text}`),
+    ...alerts.slice(0, 3).map((alert) => `Urgent Rory prospect alert: ${alert.prospect_name || alert.sender_email} - ${alert.recommended_action || "Review immediately"}`),
     ...list.filter((email) => email.requires_review && email.review_status !== "Reviewed").slice(0, 3).map((email) => `Approve or correct route to ${email.assigned_route || ellisRouteForEmail(email)}: ${email.subject}`)
   ].slice(0, 14);
   const summary = list.length
@@ -3761,6 +3951,10 @@ export default async function handler(req, res) {
       "undo-ellis-email-action": undoEllisEmailAction,
       "create-ellis-task": createEllisTask,
       "update-ellis-task": updateEllisTask,
+      "update-ellis-delegation": updateEllisDelegation,
+      "approve-ellis-delegation": approveEllisDelegation,
+      "update-agent-work-queue-task": updateAgentWorkQueueTask,
+      "save-ellis-alert-settings": saveEllisAlertSettings,
       "generate-ellis-briefing": generateEllisBriefing,
       "sync-ellis-inbox": syncEllisInbox,
       "save-reply-intake": saveReplyIntake,
