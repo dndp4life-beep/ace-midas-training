@@ -1394,6 +1394,136 @@ function buildOpportunityMetrics(opportunities, tasks) {
   };
 }
 
+function executiveDashboardDateMatches(value, from) {
+  if (!value) return false;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) && timestamp >= from;
+}
+
+function executiveDashboardCurrency(value) {
+  return Number.isFinite(Number(value)) ? Number(value) : 0;
+}
+
+async function getExecutiveDashboard(supabase) {
+  const [
+    opportunitiesResult,
+    tasksResult,
+    prospectsResult,
+    memoryResult,
+    linksResult,
+    emailsResult,
+    interactionsResult,
+    alertsResult,
+    learningResult,
+    repliesResult
+  ] = await Promise.all([
+    supabase.from("opportunities").select(opportunitySelect).order("updated_at", { ascending: false }).limit(500),
+    supabase.from("agent_work_queue").select(agentWorkQueueSelect).order("updated_at", { ascending: false }).limit(500),
+    supabase.from("prospects").select(prospectSelect).order("created_at", { ascending: false }).limit(1000),
+    supabase.from("mia_communication_memory").select(miaCommunicationMemorySelect).order("updated_at", { ascending: false }).limit(500),
+    supabase.from("opportunity_email_links").select(opportunityEmailLinkSelect).order("created_at", { ascending: false }).limit(1000),
+    supabase.from("email_triage").select(ellisEmailSelect).order("received_at", { ascending: false }).limit(500),
+    supabase.from("crm_interactions").select(crmInteractionSelect).order("occurred_at", { ascending: false }).limit(500),
+    supabase.from("ellis_urgent_alerts").select(ellisUrgentAlertSelect).order("created_at", { ascending: false }).limit(100),
+    supabase.from("ellis_learning_events").select(ellisLearningEventSelect).order("created_at", { ascending: false }).limit(500),
+    supabase.from("reply_intake").select("id, organisation_id, contact_name, contact_email, message, classification, requested_action, assigned_agent, approval_required, approval_status, created_at, updated_at").order("created_at", { ascending: false }).limit(300)
+  ]);
+  const error = opportunitiesResult.error || tasksResult.error || prospectsResult.error || memoryResult.error || linksResult.error || emailsResult.error || interactionsResult.error || alertsResult.error || learningResult.error || repliesResult.error;
+  if (error) throw error;
+
+  const now = Date.now();
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const todayStart = startOfToday.getTime();
+  const weekStart = todayStart - (6 * 86400000);
+  const today = new Date().toISOString().slice(0, 10);
+  const opportunities = opportunitiesResult.data || [];
+  const tasks = tasksResult.data || [];
+  const prospects = prospectsResult.data || [];
+  const memory = memoryResult.data || [];
+  const links = linksResult.data || [];
+  const emails = emailsResult.data || [];
+  const interactions = interactionsResult.data || [];
+  const alerts = alertsResult.data || [];
+  const learningEvents = learningResult.data || [];
+  const replies = repliesResult.data || [];
+  const openTasks = tasks.filter((item) => !["Completed", "Cancelled"].includes(item.status));
+  const activeOpportunities = opportunities.filter((item) => item.status === "open");
+  const openAlerts = alerts.filter((item) => !["resolved", "dismissed", "closed"].includes(String(item.status || "").toLowerCase()));
+  const pendingTheoReplies = replies.filter((item) => item.approval_required && !["sent", "rejected", "completed"].includes(String(item.approval_status || "").toLowerCase()));
+  const theoQueue = openTasks.filter((item) => String(item.assigned_agent || "").toLowerCase() === "theo");
+  const miaSentToday = memory.filter((item) => item.approval_outcome === "sent" && executiveDashboardDateMatches(item.updated_at || item.created_at, todayStart));
+  const miaSentAll = memory.filter((item) => item.approval_outcome === "sent");
+  const miaFailedAll = memory.filter((item) => item.approval_outcome === "failed");
+  const confirmedLearning = learningEvents.filter((item) => !item.was_undo);
+  const routingOverrides = confirmedLearning.filter((item) => item.was_override).length;
+  const urgentActions = [
+    ...openAlerts.map((item) => ({ type: "Urgent alert", title: item.subject || item.prospect_name || "Urgent prospect activity", summary: item.summary || item.match_reason || "Review the urgent prospect activity.", priority: "Critical", owner: "Marvin", created_at: item.created_at })),
+    ...activeOpportunities.filter((item) => item.stage === "Quote Requested").map((item) => ({ type: "Quote request", title: item.next_action || "Quote requested", summary: item.notes || "A quote request needs review.", priority: "High", owner: item.assigned_agent || "Mia", created_at: item.updated_at })),
+    ...activeOpportunities.filter((item) => item.is_hot).map((item) => ({ type: "Hot opportunity", title: item.hot_reason || "Hot opportunity", summary: item.next_action || "Review the next action.", priority: "High", owner: item.assigned_agent || "Mia", created_at: item.updated_at })),
+    ...openTasks.filter((item) => ["Complaint", "Invoice / Payment", "Legal / Compliance", "Compliance / Legal", "Safeguarding"].includes(item.category) || item.status === "Waiting for Marvin").map((item) => ({ type: item.category || "Marvin review", title: item.task_title || "Review required", summary: item.task_description || "This item needs Marvin's attention.", priority: item.priority || "High", owner: "Marvin", created_at: item.updated_at || item.created_at })),
+    ...pendingTheoReplies.map((item) => ({ type: "Booking approval", title: item.requested_action || item.classification || "Booking request", summary: item.message || "Theo requires a booking decision.", priority: "High", owner: "Marvin", created_at: item.updated_at || item.created_at }))
+  ].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()).slice(0, 12);
+  const awaitingFollowUp = openTasks.filter((item) => item.due_date && item.due_date <= today);
+  const briefingPriorities = [
+    urgentActions.length ? `${urgentActions.length} urgent action item(s) require review.` : "No urgent action items are waiting.",
+    awaitingFollowUp.length ? `${awaitingFollowUp.length} follow-up task(s) are due or overdue.` : "No opportunity follow-ups are overdue.",
+    pendingTheoReplies.length ? `${pendingTheoReplies.length} Theo booking decision(s) are awaiting approval.` : "No Theo booking approvals are waiting.",
+    activeOpportunities.filter((item) => item.stage === "Quote Requested").length ? `${activeOpportunities.filter((item) => item.stage === "Quote Requested").length} quote request(s) need attention.` : "No new quote requests are waiting."
+  ];
+
+  return {
+    success: true,
+    generated_at: new Date().toISOString(),
+    executive_summary: {
+      active_opportunities: activeOpportunities.length,
+      hot_opportunities: activeOpportunities.filter((item) => item.is_hot).length,
+      opportunities_awaiting_follow_up: awaitingFollowUp.length,
+      new_replies_today: links.filter((item) => executiveDashboardDateMatches(item.created_at, todayStart)).length,
+      bookings_awaiting_action: pendingTheoReplies.length + theoQueue.length,
+      urgent_alerts: openAlerts.length,
+      estimated_pipeline_value: activeOpportunities.reduce((sum, item) => sum + executiveDashboardCurrency(item.estimated_value), 0)
+    },
+    rory_summary: {
+      prospects_found_today: prospects.filter((item) => executiveDashboardDateMatches(item.created_at, todayStart)).length,
+      prospects_found_this_week: prospects.filter((item) => executiveDashboardDateMatches(item.created_at, weekStart)).length,
+      high_priority_prospects: prospects.filter((item) => String(item.priority || "").toLowerCase() === "high" || Number(item.score || 0) >= 75).length,
+      prospects_awaiting_outreach: prospects.filter((item) => !item.do_not_contact && ["new", "ready_for_outreach", "pending_review"].includes(String(item.status || item.review_status || "").toLowerCase())).length,
+      prospect_quality_score: prospects.length ? Math.round(prospects.reduce((sum, item) => sum + Number(item.score || 0), 0) / prospects.length) : 0
+    },
+    mia_summary: {
+      outreach_sent_today: miaSentToday.length,
+      follow_ups_sent: miaSentToday.filter((item) => String(item.communication_type || "").toLowerCase().includes("follow")).length,
+      positive_replies: links.filter((item) => ["positive", "interested"].includes(String(item.reply_classification || "").toLowerCase())).length,
+      quote_requests: activeOpportunities.filter((item) => item.stage === "Quote Requested").length,
+      opportunities_created: opportunities.filter((item) => executiveDashboardDateMatches(item.created_at, todayStart)).length,
+      automation_success_rate: miaSentAll.length + miaFailedAll.length ? Math.round((miaSentAll.length / (miaSentAll.length + miaFailedAll.length)) * 100) : 0
+    },
+    ellis_summary: {
+      emails_processed: emails.filter((item) => executiveDashboardDateMatches(item.received_at || item.created_at, todayStart)).length,
+      crm_records_updated: interactions.filter((item) => executiveDashboardDateMatches(item.occurred_at || item.created_at, todayStart)).length,
+      opportunities_updated: opportunities.filter((item) => executiveDashboardDateMatches(item.updated_at, todayStart)).length,
+      urgent_escalations: alerts.filter((item) => executiveDashboardDateMatches(item.created_at, todayStart)).length,
+      routing_accuracy: confirmedLearning.length ? Math.max(0, Math.round(((confirmedLearning.length - routingOverrides) / confirmedLearning.length) * 100)) : 0
+    },
+    theo_summary: {
+      website_bookings: replies.filter((item) => executiveDashboardDateMatches(item.created_at, todayStart) && String(item.classification || "").toLowerCase().includes("booking")).length,
+      booking_amendments: replies.filter((item) => ["change", "amend", "cancel", "reschedule"].some((word) => `${item.classification || ""} ${item.requested_action || ""}`.toLowerCase().includes(word))).length,
+      booking_confirmations_pending: pendingTheoReplies.length,
+      booking_tasks_outstanding: theoQueue.length
+    },
+    urgent_actions: urgentActions,
+    morning_briefing: {
+      greeting: "Good morning Marvin",
+      priorities: briefingPriorities,
+      important_replies: links.filter((item) => executiveDashboardDateMatches(item.created_at, todayStart)).slice(0, 5),
+      booking_actions: pendingTheoReplies.slice(0, 5),
+      generated_at: new Date().toISOString()
+    },
+    data_sources: ["opportunities", "agent_work_queue", "prospects", "mia_communication_memory", "opportunity_email_links", "email_triage", "crm_interactions", "ellis_urgent_alerts", "ellis_learning_events", "reply_intake"]
+  };
+}
+
 function buildOpportunityInsights(opportunities, tasks) {
   const today = Date.now();
   const list = [];
@@ -4602,6 +4732,7 @@ export default async function handler(req, res) {
       "save-ellis-alert-settings": saveEllisAlertSettings,
       "generate-ellis-briefing": generateEllisBriefing,
       "sync-ellis-inbox": syncEllisInbox,
+      "get-executive-dashboard": getExecutiveDashboard,
       "get-opportunity-management": getOpportunityManagement,
       "update-opportunity": updateOpportunity,
       "create-opportunity-follow-up": createOpportunityFollowUp,
