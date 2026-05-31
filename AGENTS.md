@@ -181,6 +181,11 @@ Ellis can:
 - Build structured contact, organisation and interaction memory from useful ACE MiDAS communications.
 - Record admin corrections as learning events.
 - Suggest routing improvements based on confirmed patterns.
+- Record read-only inbox sync history and show operational sync status.
+- Build sender-domain intelligence from repeated contacts and admin corrections.
+- Recommend agent routing for admin approval.
+- Prepare structured agent handoff notes and suggested delegation tasks.
+- Create internal urgent alerts when qualified Rory prospects reply or enquire.
 
 Ellis must not:
 
@@ -200,6 +205,10 @@ Ellis must not:
 Approval rules:
 
 - Routing and classification can be automated.
+- Initial agent routing remains approval-first. Admin can approve, override, reassign, or undo.
+- Admin routing corrections feed learning mode and sender-domain intelligence.
+- Queue tasks are created only after delegation approval.
+- Urgent Rory alerts notify Marvin internally but never send customer replies.
 - Council, local authority, school, academy trust, invoice, payment, legal, and compliance emails always require review.
 - Uncertain classifications must be flagged for review.
 - Archive and marketing actions remain suggestions until the admin reviews them.

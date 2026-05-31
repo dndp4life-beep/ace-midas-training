@@ -269,6 +269,29 @@ Automation is allowed for:
 - Reminder queue generation
 - Reminder processing where configured
 - Report history logging
+- Read-only Livemail inbox sync every 10 minutes after Supabase Vault activation
+- Sender-domain intelligence updates from imported messages
+
+## Ellis Phase 4 Routing Rules
+
+- The Back Office must validate an HttpOnly server session before using `/api/admin`.
+- Livemail sync must remain read-only and duplicate-safe.
+- Every sync attempt must write `ellis_sync_history`.
+- Ellis may recommend a route, but initial routing remains approval-first.
+- Admin routing approvals, overrides, reassignments, and undo actions must create learning events.
+- Admin category or route corrections should update sender-domain intelligence cautiously.
+- Sender-domain history may improve future suggestions but must never override human review requirements for legal matters, safeguarding, complaints, invoices, payment disputes, or low-confidence messages.
+- Enhanced daily briefings should surface urgent customer emails, council and school enquiries, follow-ups, invoices, likely spam, relationship insights, and routing recommendations.
+
+## Ellis Phase 5 Delegation Rules
+
+- Ellis may create suggested delegation records automatically.
+- Suggested delegations require admin approval before an agent queue task is created.
+- Agent work queue tasks are internal operational records only. They must not auto-send replies.
+- Reassignment, overrides, approvals and undo actions must write learning events.
+- Complaints, invoices, legal issues, compliance concerns, safeguarding concerns, payment disputes and low-confidence high-value items must route to Marvin for review.
+- Rory prospect matches may create internal urgent alerts and one cooldown-protected internal notification email.
+- Urgent alerts must not auto-reply, delete, archive, unsubscribe or expose secrets.
 
 ## Daily AI Summary Expectations
 

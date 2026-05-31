@@ -209,6 +209,21 @@ Required Supabase Edge Function secrets remain:
 
 Supabase Cron activation stores the existing `ELLIS_SYNC_SECRET` value inside Supabase Vault using `private.set_ellis_sync_secret(text)`, then schedules the ten-minute job using `private.schedule_ellis_inbox_cron(text)`. The database cannot read Supabase Edge Function secrets automatically. Do not put mailbox passwords, session secrets, or sync secrets in frontend code.
 
+## Ellis Phase 5 Controlled Delegation
+
+Ellis Phase 5 adds reviewable operational delegation without automatic replies or destructive inbox actions.
+
+Phase 5 uses:
+
+- `ellis_delegations`
+- `agent_work_queue`
+- `ellis_alert_settings`
+- `ellis_urgent_alerts`
+
+For relevant inbox emails, Ellis creates a suggested delegation with a recommended agent, task, due date, reason and structured handoff note. Tasks enter an agent queue only after Back Office approval. Queue statuses are `New`, `In Progress`, `Waiting for Marvin`, `Waiting for Customer`, `Completed`, and `Cancelled`.
+
+Urgent Rory prospect alerts are created when a new inbox email matches a qualified Rory prospect by public contact email, organisation domain or organisation mention. Alerts are deduplicated by email and email notifications use a configurable prospect cooldown. Alerts are internal only.
+
 ## Important Development Rules
 
 - Do not expose secret keys in frontend code.
