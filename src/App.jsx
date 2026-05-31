@@ -22,6 +22,7 @@ const COURSE_CHECKOUT_API_URL = "/api/create-checkout-session";
 const SEND_LOGIN_CODE_API_URL = "/api/send-login-code";
 const VERIFY_LOGIN_CODE_API_URL = "/api/verify-login-code";
 const ADMIN_API_URL = "/api/admin";
+const ADMIN_AUTH_API_URL = "/api/admin-auth";
 const BOOKING_CONFIRMATION_API = "/api/send-booking-confirmation";
 const USE_STRIPE_TEST_LINK = false;
 const BACK_OFFICE_TAB_STORAGE_KEY = "ace_back_office_active_tab";
@@ -88,6 +89,7 @@ async function safeReadJson(response, fallbackMessage = "Server error. Please tr
 async function callAdminAction(action, payload = {}) {
   const response = await fetch(ADMIN_API_URL, {
     method: "POST",
+    credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action, payload })
   });
@@ -934,6 +936,8 @@ function ContactPage({ siteSettings }) {
 function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSettings, setSiteSettings, mediaSettings, setMediaSettings, loginNonce }) {
   const [code, setCode] = useState("");
   const [unlocked, setUnlocked] = useState(false);
+  const [adminRole, setAdminRole] = useState("");
+  const [adminAuthChecking, setAdminAuthChecking] = useState(true);
   const [message, setMessage] = useState("");
   const [activeTab, setActiveTab] = useState("Dashboard");
   const [blogForm, setBlogForm] = useState({ tag: "", title: "", content: "", status: "Draft" });
@@ -1006,6 +1010,8 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const [ellisBriefings, setEllisBriefings] = useState([]);
   const [ellisActivity, setEllisActivity] = useState([]);
   const [ellisConnections, setEllisConnections] = useState([]);
+  const [ellisSyncHistory, setEllisSyncHistory] = useState([]);
+  const [ellisSenderDomains, setEllisSenderDomains] = useState([]);
   const [ellisMetrics, setEllisMetrics] = useState({});
   const [ellisRecommendations, setEllisRecommendations] = useState([]);
   const [ellisCrm, setEllisCrm] = useState({});
@@ -1194,6 +1200,8 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const safeEllisBriefings = asArray(ellisBriefings).map((briefing) => ({ ...asObject(briefing), metrics: asObject(asObject(briefing).metrics), urgent_emails: asArray(asObject(briefing).urgent_emails), recommendations: asArray(asObject(briefing).recommendations) }));
   const safeEllisActivity = asArray(ellisActivity).map((entry) => ({ ...asObject(entry), metadata: asObject(asObject(entry).metadata) }));
   const safeEllisConnections = asArray(ellisConnections).map((connection) => asObject(connection));
+  const safeEllisSyncHistory = asArray(ellisSyncHistory).map((sync) => ({ ...asObject(sync), errors: asArray(asObject(sync).errors) }));
+  const safeEllisSenderDomains = asArray(ellisSenderDomains).map((domain) => ({ ...asObject(domain), classification_history: asArray(asObject(domain).classification_history) }));
   const safeEllisCrm = asObject(ellisCrm);
   const safeEllisCrmContacts = asArray(safeEllisCrm.contacts).map((contact) => asObject(contact));
   const safeEllisCrmOrganisations = asArray(safeEllisCrm.organisations).map((organisation) => asObject(organisation));
@@ -1212,6 +1220,8 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     return `${email.sender_name || ""} ${email.sender_email || ""} ${email.subject || ""} ${email.summary || ""}`.toLowerCase().includes(search);
   });
   const ellisReviewQueue = filteredEllisEmails.filter((email) => email.requires_review && email.review_status !== "Reviewed");
+  const latestEllisSync = safeEllisSyncHistory[0] || null;
+  const nextEllisSyncAt = latestEllisSync?.completed_at ? new Date(new Date(latestEllisSync.completed_at).getTime() + 10 * 60 * 1000).toISOString() : "";
   const latestEllisBriefing = safeEllisBriefings[0] || null;
   const ellisRouteOptions = ["Ellis", "Mia", "Theo", "Rory", "Ava", "Marvin"];
   const miaNeedsReviewQuestions = safeMiaVisitorQuestions.filter((question) => question.needs_review || question.status === "Needs admin review");
@@ -2359,6 +2369,8 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     setEllisBriefings(result.briefings || []);
     setEllisActivity(result.activity || []);
     setEllisConnections(result.connections || []);
+    setEllisSyncHistory(result.sync_history || []);
+    setEllisSenderDomains(result.sender_domains || []);
     setEllisMetrics(result.metrics || {});
     setEllisRecommendations(result.recommendations || []);
     setEllisCrm(result.crm || {});
@@ -2817,6 +2829,19 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     } catch (error) {
       console.warn("Back Office tab restore unavailable:", error);
     }
+    fetch(ADMIN_AUTH_API_URL, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "status" })
+    })
+      .then((response) => safeReadJson(response))
+      .then((result) => {
+        setUnlocked(result.authenticated === true);
+        setAdminRole(result.role || "");
+      })
+      .catch((error) => console.warn("Back Office session check unavailable:", error))
+      .finally(() => setAdminAuthChecking(false));
   }, []);
 
   useEffect(() => {
@@ -2869,20 +2894,49 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     loadEllisOperations({ quiet: true });
   }, [unlocked, activeTab]);
 
-  function unlockBackOffice(e) {
+  async function unlockBackOffice(e) {
     e.preventDefault();
-    if (code.trim() !== "ACEADMIN2026") {
-      showMessage("error", "Incorrect admin code.");
-      return;
-    }
-    setUnlocked(true);
+    setAdminAuthChecking(true);
     try {
-      window.localStorage.setItem(BACK_OFFICE_TAB_STORAGE_KEY, activeTab);
+      const response = await fetch(ADMIN_AUTH_API_URL, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "login", code: code.trim() })
+      });
+      const result = await safeReadJson(response);
+      if (!response.ok || !result.authenticated) {
+        showMessage("error", result.error || "Could not unlock the Back Office.");
+        return;
+      }
+      setUnlocked(true);
+      setAdminRole(result.role || "Admin");
+      setCode("");
+      showMessage("success", "Back Office unlocked securely.");
+      setActivity((current) => ["Admin unlocked Back Office", ...current]);
     } catch (error) {
-      console.warn("Back Office session save unavailable:", error);
+      console.error("Back Office unlock error:", error);
+      showMessage("error", "Could not unlock the Back Office.");
+    } finally {
+      setAdminAuthChecking(false);
     }
-    showMessage("success", "Back Office unlocked.");
-    setActivity((current) => ["Admin unlocked Back Office", ...current]);
+  }
+
+  async function logoutBackOffice() {
+    try {
+      await fetch(ADMIN_AUTH_API_URL, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "logout" })
+      });
+    } catch (error) {
+      console.warn("Back Office logout request unavailable:", error);
+    }
+    setUnlocked(false);
+    setAdminRole("");
+    setCode("");
+    showMessage("success", "Back Office locked.");
   }
 
   function updateBlogField(e) {
@@ -4015,7 +4069,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
           {message ? <p className={`mt-5 rounded-xl p-3 text-sm font-semibold ${message.type === "error" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>{message.text}</p> : null}
           <form onSubmit={unlockBackOffice} className="mt-6 grid gap-4">
             <input type="password" value={code} onChange={(e) => setCode(e.target.value)} className="rounded-xl border border-slate-200 p-4" placeholder="Admin code" required />
-            <button type="submit" className="w-full rounded-xl bg-slate-950 p-4 font-black text-white">Unlock Back Office</button>
+            <button type="submit" disabled={adminAuthChecking} className="w-full rounded-xl bg-slate-950 p-4 font-black text-white disabled:opacity-60">{adminAuthChecking ? "Checking..." : "Unlock Back Office"}</button>
             <button type="button" onClick={() => setPage("Home")} className="rounded-xl border border-slate-200 p-4 font-bold text-slate-700">Back to Site</button>
           </form>
         </div>
@@ -4031,7 +4085,11 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
             <p className="font-semibold text-emerald-300">ACE MiDAS Training</p>
             <h1 className="mt-2 text-4xl font-black">Back Office</h1>
           </div>
-          <button type="button" onClick={() => setPage("Home")} className="rounded-xl bg-white px-5 py-3 font-bold text-slate-950">Back to Site</button>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-xl border border-white/10 bg-white/10 px-4 py-3 text-xs font-black text-emerald-200">{adminRole || "Admin"}</span>
+            <button type="button" onClick={logoutBackOffice} className="rounded-xl border border-white/20 px-5 py-3 font-bold text-white">Lock Back Office</button>
+            <button type="button" onClick={() => setPage("Home")} className="rounded-xl bg-white px-5 py-3 font-bold text-slate-950">Back to Site</button>
+          </div>
         </div>
 
         {message ? <p className={`mt-6 rounded-xl p-4 text-sm font-semibold ${message.type === "error" ? "bg-red-100 text-red-800" : "bg-emerald-100 text-emerald-800"}`}>{message.text}</p> : null}
@@ -5270,6 +5328,31 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                   </section>
 
                   <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <h3 className="text-xl font-black">Routing Review</h3>
+                        <p className="mt-1 text-sm font-semibold text-slate-600">Approve or correct Ellis routing recommendations. Every decision feeds learning mode and can be undone from the review queue.</p>
+                      </div>
+                      <span className="rounded-full bg-amber-50 px-3 py-2 text-xs font-black text-amber-800">Approval required</span>
+                    </div>
+                    <div className="mt-5 grid gap-3">
+                      {ellisReviewQueue.length ? ellisReviewQueue.slice(0, 8).map((email) => <article key={`route-${email.id}`} className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 lg:grid-cols-[1fr_auto] lg:items-center">
+                        <div>
+                          <p className="font-black">{safeText(email.subject, "No subject")}</p>
+                          <p className="mt-1 text-sm font-semibold text-slate-600">{safeText(email.sender_email, "No sender")} · {safeText(email.category, "Review Later")} · Confidence {Number(email.confidence_score || 0)}%</p>
+                          <p className="mt-1 text-xs font-bold text-slate-500">Reason: {asArray(email.reasoning_metadata?.matched_rules).join(", ") || "No strong rule matched"}</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <select value={email.assigned_route || "Ellis"} onChange={(e) => updateEllisEmail(email, { assigned_route: e.target.value, review_status: "Routing Updated", requires_review: true }, "Routing recommendation updated.")} disabled={ellisBusy === email.id} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black">
+                            {ellisRouteOptions.map((route) => <option key={route}>{route}</option>)}
+                          </select>
+                          <button type="button" onClick={() => updateEllisEmail(email, { review_status: "Reviewed", requires_review: false }, "Routing recommendation approved.")} disabled={ellisBusy === email.id} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-60">Approve</button>
+                        </div>
+                      </article>) : <p className="rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-600">No routing recommendations need review.</p>}
+                    </div>
+                  </section>
+
+                  <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                       <div>
                         <h3 className="text-xl font-black">Ellis Review Queue</h3>
@@ -5325,6 +5408,17 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                         <div className="flex items-center justify-between rounded-xl bg-emerald-50 p-4"><p className="text-sm font-black">Fasthosts Livemail IMAP SSL/TLS</p><span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800">Read-only sync</span></div>
                         {["Gmail OAuth 2.0 + PKCE", "Microsoft 365 / Outlook OAuth 2.0 + PKCE"].map((provider) => <div key={provider} className="flex items-center justify-between rounded-xl bg-slate-50 p-4"><p className="text-sm font-black">{provider}</p><span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-800">Phase 2 planned</span></div>)}
                         {safeEllisConnections.length ? <p className="text-xs font-bold text-slate-500">{safeEllisConnections.length} mailbox connection metadata record(s) available. Last synced: {safeEllisConnections[0]?.last_synced_at ? formatDisplayDateTime(safeEllisConnections[0].last_synced_at) : "Not yet synced"}.</p> : <p className="text-xs font-bold text-slate-500">Use Sync Livemail Inbox to verify the secure connection.</p>}
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs font-bold text-slate-600">
+                          <p>Automatic sync status: {latestEllisSync?.trigger_source === "supabase_cron" ? "Active" : "Awaiting scheduled run"}</p>
+                          <p className="mt-1">Last run: {latestEllisSync?.completed_at ? formatDisplayDateTime(latestEllisSync.completed_at) : "No recorded Phase 4 sync yet"}</p>
+                          <p className="mt-1">Next estimated run: {nextEllisSyncAt ? formatDisplayDateTime(nextEllisSyncAt) : "Available after scheduler activation"}</p>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-white p-4">
+                          <h4 className="text-sm font-black">Recent Sync History</h4>
+                          <div className="mt-3 grid gap-2">
+                            {safeEllisSyncHistory.length ? safeEllisSyncHistory.slice(0, 5).map((sync) => <p key={sync.id} className="text-xs font-bold text-slate-600">{formatDisplayDateTime(sync.created_at)} · {safeText(sync.trigger_source, "manual")} · {safeText(sync.status, "pending")} · {Number(sync.imported || 0)} imported</p>) : <p className="text-xs font-bold text-slate-500">No Phase 4 sync history yet.</p>}
+                          </div>
+                        </div>
                       </div>
                     </div>
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -5332,6 +5426,17 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                       <div className="mt-4 grid gap-2">
                         {safeEllisActivity.length ? safeEllisActivity.slice(0, 8).map((entry) => <div key={entry.id} className="rounded-xl bg-slate-50 p-3"><p className="text-sm font-bold text-slate-700">{safeText(entry.summary, "No activity summary")}</p><p className="mt-1 text-xs font-bold text-slate-500">{formatDisplayDateTime(entry.created_at)}</p></div>) : <p className="text-sm font-bold text-slate-600">No Ellis activity yet.</p>}
                       </div>
+                    </div>
+                  </section>
+
+                  <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <h3 className="text-xl font-black">Sender Domain Intelligence</h3>
+                    <p className="mt-1 text-sm font-semibold text-slate-600">Ellis remembers repeated sender patterns and your routing corrections. Suggestions remain review-first.</p>
+                    <div className="mt-5 overflow-x-auto">
+                      <table className="min-w-[760px] w-full text-left text-sm">
+                        <thead><tr className="border-b border-slate-200 text-xs uppercase text-slate-500"><th className="p-3">Domain</th><th className="p-3">Type</th><th className="p-3">Suggested category</th><th className="p-3">Route</th><th className="p-3">Confidence</th><th className="p-3">History</th></tr></thead>
+                        <tbody>{safeEllisSenderDomains.length ? safeEllisSenderDomains.slice(0, 20).map((domain) => <tr key={domain.id} className="border-b border-slate-100"><td className="p-3 font-black">{safeText(domain.domain, "Unknown")}</td><td className="p-3">{safeText(domain.organisation_type, "Other")}</td><td className="p-3">{safeText(domain.suggested_category, "Review Later")}</td><td className="p-3">{safeText(domain.suggested_route, "Ellis")}</td><td className="p-3">{Number(domain.domain_confidence || 0)}%</td><td className="p-3">{Number(domain.interaction_count || 0)} email(s) · {Number(domain.correction_count || 0)} correction(s)</td></tr>) : <tr><td colSpan="6" className="p-4 text-sm font-bold text-slate-600">Domain intelligence will appear after the next inbox sync.</td></tr>}</tbody>
+                      </table>
                     </div>
                   </section>
                 </div>
