@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 
@@ -91,6 +92,8 @@ const crmInteractionSelect = "id, owner_id, contact_id, organisation_id, email_t
 const crmInsightSelect = "id, owner_id, contact_id, organisation_id, insight_type, insight_text, priority, status, metadata, created_at, updated_at";
 const ellisLearningEventSelect = "id, user_id, email_id, contact_id, organisation_id, original_category, original_priority, original_agent_suggestion, user_selected_agent, action_type, was_override, was_undo, confidence_before, confidence_after, metadata, created_at";
 const ellisActionHistorySelect = "id, user_id, email_id, action_taken, previous_state, new_state, is_undone, undone_at, created_at";
+const ellisSyncHistorySelect = "id, provider, status, trigger_source, unread_found, imported, duplicates_skipped, errors, started_at, completed_at, created_at";
+const senderDomainIntelligenceSelect = "id, domain, organisation_name, organisation_type, suggested_category, suggested_route, domain_confidence, classification_history, interaction_count, correction_count, last_seen_at, created_at, updated_at";
 const flexibleSelect = "*";
 const recommendedServices = ["First Aid", "PATS", "MiDAS", "Refresher Training", "Compliance Tracking Support", "Mixed Opportunity"];
 const rorySearchThemes = ["First Aid training prospects", "PATS training prospects", "MiDAS training prospects", "refresher training prospects", "schools/trusts", "charities/community organisations", "care providers", "hospitality/businesses"];
@@ -382,6 +385,32 @@ const ellisCategories = [
   "Likely Spam",
   "Review Later"
 ];
+
+const adminSessionCookieName = "ace_admin_session";
+
+function signAdminSession(value) {
+  const secret = process.env.BACK_OFFICE_SESSION_SECRET || process.env.BACK_OFFICE_ADMIN_CODE || (process.env.NODE_ENV !== "production" ? "ACEADMIN2026" : "");
+  if (!secret) return "";
+  return crypto.createHmac("sha256", secret).update(value).digest("base64url");
+}
+
+function readAdminSession(req) {
+  const token = String(req.headers.cookie || "")
+    .split(";")
+    .map((part) => part.trim().split("="))
+    .find(([key]) => key === adminSessionCookieName)?.[1] || "";
+  const [payload, signature] = token.split(".");
+  if (!payload || !signature) return null;
+  const expected = signAdminSession(payload);
+  if (!expected) return null;
+  if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+  try {
+    const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    return Number(session.expires_at || 0) > Date.now() ? session : null;
+  } catch {
+    return null;
+  }
+}
 const ellisPriorities = ["Critical", "High", "Medium", "Low"];
 const ellisActions = ["Review", "Archive Suggestion", "Follow-Up Required", "Draft Reply", "Mark Marketing", "Mark High Priority"];
 const ellisReviewStatuses = ["Pending", "Reviewed", "Escalated", "Follow-Up Created", "Draft Requested", "Archive Suggested", "Marketing"];
@@ -599,6 +628,43 @@ function ellisRouteForEmail(email) {
   return "Ellis";
 }
 
+function senderDomain(senderEmail) {
+  return String(senderEmail || "").trim().toLowerCase().split("@")[1] || "";
+}
+
+async function learnSenderDomainCorrection(supabase, email, changedFields) {
+  if (!changedFields.some((field) => ["category", "assigned_route"].includes(field))) return;
+  const domain = senderDomain(email.sender_email);
+  if (!domain) return;
+  const { data: previous, error: readError } = await supabase
+    .from("sender_domain_intelligence")
+    .select(senderDomainIntelligenceSelect)
+    .eq("domain", domain)
+    .maybeSingle();
+  if (readError) throw readError;
+  const history = Array.isArray(previous?.classification_history) ? previous.classification_history : [];
+  const { error } = await supabase.from("sender_domain_intelligence").upsert({
+    domain,
+    organisation_name: previous?.organisation_name || domainOrganisationName(email.sender_email) || domain,
+    organisation_type: previous?.organisation_type || crmContactType(email),
+    suggested_category: email.category || "Review Later",
+    suggested_route: email.assigned_route || ellisRouteForEmail(email),
+    domain_confidence: Math.min(98, Math.max(70, Number(previous?.domain_confidence || 65) + 5)),
+    classification_history: [...history, {
+      source: "admin_review",
+      email_triage_id: email.id,
+      category: email.category,
+      route: email.assigned_route || ellisRouteForEmail(email),
+      recorded_at: new Date().toISOString()
+    }].slice(-30),
+    interaction_count: Number(previous?.interaction_count || 0),
+    correction_count: Number(previous?.correction_count || 0) + 1,
+    last_seen_at: previous?.last_seen_at || new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }, { onConflict: "domain" });
+  if (error) throw error;
+}
+
 async function findOrCreateCrmOrganisation(supabase, email) {
   const senderEmail = String(email.sender_email || "").trim().toLowerCase();
   const domain = senderEmail.split("@")[1] || "";
@@ -786,7 +852,7 @@ function buildEllisCrmMetrics(contacts, organisations, interactions, learningEve
 
 async function getEllisOperations(supabase) {
   await enrichEllisCrmMemory(supabase);
-  const [emailsResult, tasksResult, briefingsResult, activityResult, connectionsResult, contactsResult, organisationsResult, interactionsResult, insightsResult, learningResult, historyResult] = await Promise.all([
+  const [emailsResult, tasksResult, briefingsResult, activityResult, connectionsResult, contactsResult, organisationsResult, interactionsResult, insightsResult, learningResult, historyResult, syncHistoryResult, domainIntelResult] = await Promise.all([
     supabase.from("email_triage").select(ellisEmailSelect).order("received_at", { ascending: false }).limit(300),
     supabase.from("ellis_tasks").select(ellisTaskSelect).order("created_at", { ascending: false }).limit(200),
     supabase.from("ellis_daily_briefings").select(ellisBriefingSelect).order("briefing_date", { ascending: false }).order("created_at", { ascending: false }).limit(30),
@@ -797,9 +863,11 @@ async function getEllisOperations(supabase) {
     supabase.from("crm_interactions").select(crmInteractionSelect).order("occurred_at", { ascending: false }).limit(300),
     supabase.from("crm_insights").select(crmInsightSelect).eq("status", "Active").order("created_at", { ascending: false }).limit(100),
     supabase.from("ellis_learning_events").select(ellisLearningEventSelect).order("created_at", { ascending: false }).limit(200),
-    supabase.from("ellis_action_history").select(ellisActionHistorySelect).order("created_at", { ascending: false }).limit(200)
+    supabase.from("ellis_action_history").select(ellisActionHistorySelect).order("created_at", { ascending: false }).limit(200),
+    supabase.from("ellis_sync_history").select(ellisSyncHistorySelect).order("created_at", { ascending: false }).limit(30),
+    supabase.from("sender_domain_intelligence").select(senderDomainIntelligenceSelect).order("last_seen_at", { ascending: false }).limit(100)
   ]);
-  const error = emailsResult.error || tasksResult.error || briefingsResult.error || activityResult.error || connectionsResult.error || contactsResult.error || organisationsResult.error || interactionsResult.error || insightsResult.error || learningResult.error || historyResult.error;
+  const error = emailsResult.error || tasksResult.error || briefingsResult.error || activityResult.error || connectionsResult.error || contactsResult.error || organisationsResult.error || interactionsResult.error || insightsResult.error || learningResult.error || historyResult.error || syncHistoryResult.error || domainIntelResult.error;
   if (error) throw error;
   const emails = emailsResult.data || [];
   const contacts = contactsResult.data || [];
@@ -815,6 +883,8 @@ async function getEllisOperations(supabase) {
     connections: connectionsResult.data || [],
     metrics: buildEllisMetrics(emails),
     recommendations: buildEllisRecommendations(emails),
+    sync_history: syncHistoryResult.data || [],
+    sender_domains: domainIntelResult.data || [],
     crm: {
       contacts,
       organisations,
@@ -888,6 +958,7 @@ async function updateEllisEmail(supabase, payload) {
       metadata: { changed_fields: changedFields, review_status: data.review_status }
     });
     if (learningError) throw learningError;
+    await learnSenderDomainCorrection(supabase, data, changedFields);
   }
   await insertEllisActivity(supabase, {
     owner_id: data.owner_id,
@@ -1004,9 +1075,17 @@ async function updateEllisTask(supabase, payload) {
 }
 
 async function generateEllisBriefing(supabase) {
-  const { data: emails, error } = await supabase.from("email_triage").select(ellisEmailSelect).order("received_at", { ascending: false }).limit(300);
+  const [emailsResult, tasksResult, insightsResult] = await Promise.all([
+    supabase.from("email_triage").select(ellisEmailSelect).order("received_at", { ascending: false }).limit(300),
+    supabase.from("ellis_tasks").select(ellisTaskSelect).neq("status", "Completed").order("due_date", { ascending: true }).limit(100),
+    supabase.from("crm_insights").select(crmInsightSelect).eq("status", "Active").order("created_at", { ascending: false }).limit(20)
+  ]);
+  const error = emailsResult.error || tasksResult.error || insightsResult.error;
   if (error) throw error;
+  const emails = emailsResult.data;
   const list = emails || [];
+  const tasks = tasksResult.data || [];
+  const insights = insightsResult.data || [];
   const metrics = buildEllisMetrics(list);
   const urgentEmails = list.filter((email) => ["Critical", "High"].includes(email.priority)).slice(0, 8).map((email) => ({
     id: email.id,
@@ -1016,9 +1095,14 @@ async function generateEllisBriefing(supabase) {
     priority: email.priority,
     recommended_action: email.recommended_action
   }));
-  const recommendations = buildEllisRecommendations(list);
+  const recommendations = [
+    ...buildEllisRecommendations(list),
+    ...tasks.slice(0, 3).map((task) => `Follow-up due: ${task.title}`),
+    ...insights.slice(0, 3).map((insight) => `Relationship insight: ${insight.insight_text}`),
+    ...list.filter((email) => email.requires_review && email.review_status !== "Reviewed").slice(0, 3).map((email) => `Approve or correct route to ${email.assigned_route || ellisRouteForEmail(email)}: ${email.subject}`)
+  ].slice(0, 14);
   const summary = list.length
-    ? `Ellis processed ${metrics.total_emails_processed} email(s). ${metrics.high_priority_count} need high-priority attention and ${metrics.follow_ups_required} require follow-up.`
+    ? `Ellis processed ${metrics.total_emails_processed} email(s). ${metrics.high_priority_count} need high-priority attention, ${metrics.follow_ups_required} require follow-up and ${tasks.length} open task(s) need operational review.`
     : "No email triage records are available yet.";
   const { data, error: insertError } = await supabase.from("ellis_daily_briefings").insert({
     summary,
@@ -3633,6 +3717,8 @@ async function createMiaKbEntryFromQuestion(supabase, payload) {
 export default async function handler(req, res) {
   try {
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+    const adminSession = readAdminSession(req);
+    if (!adminSession || adminSession.role !== "Admin") return res.status(401).json({ error: "Admin session expired. Please unlock the Back Office again." });
     const supabase = getSupabaseAdminClient();
     if (!supabase) return res.status(500).json({ error: "Supabase server configuration is missing." });
 
