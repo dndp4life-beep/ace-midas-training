@@ -211,6 +211,145 @@ function inferOrganisationType(domain: string, category: string) {
   return "Other";
 }
 
+function delegationForEmail(email: Record<string, string>, analysis: Record<string, unknown>, prospect: Record<string, unknown> | null = null) {
+  const category = String(analysis.category || "Review Later");
+  const text = `${email.subject} ${email.raw_excerpt}`.toLowerCase();
+  const sensitive = ["Compliance / Legal", "Invoice / Payment", "Council / Local Authority"].includes(category)
+    || ["complaint", "safeguarding", "payment dispute", "legal"].some((term) => text.includes(term));
+  const recommendedAgent = sensitive ? "Marvin"
+    : category === "Booking Request" ? "Theo"
+    : prospect || ["Customer Enquiry", "Follow-Up Required"].includes(category) ? "Mia"
+    : category === "Review Later" ? "Ellis"
+    : "Ellis";
+  const priority = prospect ? "High" : String(analysis.priority || "Medium");
+  const dueDate = new Date();
+  dueDate.setUTCDate(dueDate.getUTCDate() + (priority === "High" || priority === "Critical" ? 1 : 3));
+  const reason = prospect
+    ? `Incoming email matches Rory prospect ${String(prospect.organisation_name || email.sender_email)}.`
+    : sensitive
+      ? "Sensitive subject matter requires Marvin review."
+      : `Ellis classified this as ${category}.`;
+  return {
+    sender_name: email.sender_name,
+    sender_email: email.sender_email,
+    summary: String(analysis.summary || email.raw_excerpt).slice(0, 500),
+    category,
+    priority,
+    confidence_score: Number(analysis.confidence_score || 0),
+    recommended_agent: recommendedAgent,
+    recommended_task_title: `${recommendedAgent}: review ${email.subject}`.slice(0, 180),
+    recommended_next_action: sensitive ? "Review personally before any response." : "Review the email and prepare the appropriate next step.",
+    due_date_suggestion: dueDate.toISOString().slice(0, 10),
+    reason_for_recommendation: reason,
+    handoff_note: {
+      what_happened: `New email received from ${email.sender_name || email.sender_email}.`,
+      why_it_matters: reason,
+      recommended_next_step: sensitive ? "Marvin review required." : `Review and approve delegation to ${recommendedAgent}.`,
+      risks: sensitive ? ["Sensitive content", "Human review required"] : ["Do not auto-send a reply"],
+    },
+    review_status: "Pending",
+    activity_history: [{ action: "delegation_suggested", agent: recommendedAgent, recorded_at: new Date().toISOString() }],
+  };
+}
+
+function prospectDomain(prospect: Record<string, unknown>) {
+  const emailDomain = String(prospect.contact_email || "").toLowerCase().split("@")[1] || "";
+  if (emailDomain) return emailDomain;
+  try {
+    return new URL(String(prospect.website || "")).hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return String(prospect.website || "").replace(/^https?:\/\/(?:www\.)?/, "").split("/")[0].toLowerCase();
+  }
+}
+
+async function findMatchingProspect(supabase: ReturnType<typeof createClient>, email: Record<string, string>) {
+  const domain = email.sender_email.split("@")[1]?.toLowerCase() || "";
+  const text = `${email.subject} ${email.raw_excerpt}`.toLowerCase();
+  const { data, error } = await supabase.from("prospects").select("id, organisation_name, website, contact_email, priority, score, status, review_status, do_not_contact").eq("do_not_contact", false).limit(500);
+  if (error) throw error;
+  return (data || []).find((prospect) => {
+    const prospectEmail = String(prospect.contact_email || "").trim().toLowerCase();
+    const organisation = String(prospect.organisation_name || "").trim().toLowerCase();
+    return prospectEmail === email.sender_email
+      || Boolean(domain && prospectDomain(prospect) === domain)
+      || Boolean(organisation && organisation.length >= 4 && text.includes(organisation));
+  }) || null;
+}
+
+function prospectQualifiesForAlert(prospect: Record<string, unknown> | null, settings: Record<string, unknown>) {
+  if (!prospect || settings.alerts_enabled === false) return false;
+  const score = Number(prospect.score || 0);
+  const threshold = Number(settings.minimum_prospect_score || 75);
+  const warmOrHigh = String(prospect.priority || "").toLowerCase() === "high"
+    || ["warm", "high_priority", "ready_for_outreach"].includes(String(prospect.status || prospect.review_status || "").toLowerCase());
+  return score >= threshold && (settings.warm_high_priority_only === false || warmOrHigh);
+}
+
+function escapeHtml(value: unknown) {
+  return String(value || "").replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;",
+  })[character] || character);
+}
+
+async function createUrgentProspectAlert(supabase: ReturnType<typeof createClient>, email: Record<string, string>, inserted: Record<string, string>, prospect: Record<string, unknown>, settings: Record<string, unknown>, delegation: Record<string, unknown>) {
+  const matchReason = `Matched Rory prospect ${String(prospect.organisation_name || email.sender_email)} by public contact email, domain or organisation reference.`;
+  const { data: alert, error } = await supabase.from("ellis_urgent_alerts").upsert({
+    email_triage_id: inserted.id,
+    prospect_id: prospect.id,
+    prospect_name: prospect.organisation_name || email.sender_name || email.sender_email,
+    sender_email: email.sender_email,
+    subject: email.subject,
+    summary: String(delegation.summary || "").slice(0, 500),
+    match_reason: matchReason,
+    recommended_action: delegation.recommended_next_action,
+    status: "in_app",
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "email_triage_id", ignoreDuplicates: true }).select("*").maybeSingle();
+  if (error) throw error;
+  if (!alert || settings.notify_by_email === false) return;
+  const cooldownStart = new Date(Date.now() - Number(settings.cooldown_minutes || 1440) * 60000).toISOString();
+  const { data: recentAlerts, error: recentAlertError } = await supabase
+    .from("ellis_urgent_alerts")
+    .select("id")
+    .eq("prospect_id", prospect.id)
+    .eq("email_notification_sent", true)
+    .gte("sent_at", cooldownStart)
+    .neq("id", alert.id)
+    .limit(1);
+  if (recentAlertError) throw recentAlertError;
+  if (recentAlerts?.length) {
+    await supabase.from("ellis_urgent_alerts").update({ status: "cooldown_suppressed", updated_at: new Date().toISOString() }).eq("id", alert.id);
+    return;
+  }
+
+  const resendKey = Deno.env.get("RESEND_API_KEY")?.trim();
+  const notificationEmail = String(settings.notification_email || Deno.env.get("ADMIN_EMAIL") || "info@ace-midas-training.co.uk");
+  if (!resendKey || !notificationEmail) return;
+  const sender = Deno.env.get("EMAIL_FROM") || "ACE MiDAS Training <onboarding@resend.dev>";
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      from: sender,
+      to: [notificationEmail],
+      subject: `URGENT: Rory prospect has replied/enquired - ${String(prospect.organisation_name || email.sender_email).replace(/[\r\n]+/g, " ")}`,
+      html: `<p>Ellis detected a high-value Rory prospect email.</p><p><strong>Prospect:</strong> ${escapeHtml(prospect.organisation_name || "Not recorded")}</p><p><strong>Sender:</strong> ${escapeHtml(email.sender_email)}</p><p><strong>Subject:</strong> ${escapeHtml(email.subject)}</p><p><strong>Summary:</strong> ${escapeHtml(delegation.summary)}</p><p><strong>Reason:</strong> ${escapeHtml(matchReason)}</p><p><strong>Recommended action:</strong> ${escapeHtml(delegation.recommended_next_action || "Review in Back Office.")}</p><p><a href="https://www.ace-midas-training.co.uk">Open ACE MiDAS Training Back Office</a></p>`,
+    }),
+  });
+  const providerResponse = await response.text();
+  await supabase.from("ellis_urgent_alerts").update({
+    status: response.ok ? "sent" : "failed",
+    email_notification_sent: response.ok,
+    provider_response: { status: response.status, body: providerResponse.slice(0, 1000) },
+    sent_at: response.ok ? new Date().toISOString() : null,
+    updated_at: new Date().toISOString(),
+  }).eq("id", alert.id);
+}
+
 function classifyEmail(email: Record<string, string>, domainIntel: Record<string, unknown> | null = null) {
   const text = `${email.sender_name} ${email.sender_email} ${email.subject} ${email.raw_excerpt}`.toLowerCase();
   const has = (...values: string[]) => values.some((value) => text.includes(value));
@@ -379,6 +518,12 @@ Deno.serve(async (req) => {
         if (domainIntelError) throw domainIntelError;
 
         const analysis = classifyEmail(email, domainIntel);
+        const prospect = await findMatchingProspect(supabase, email);
+        if (prospect) {
+          analysis.priority = "High";
+          analysis.requires_review = true;
+          analysis.reasoning_metadata = { ...analysis.reasoning_metadata, rory_prospect_match: true, prospect_id: prospect.id };
+        }
         const { data: inserted, error: insertError } = await supabase
           .from("email_triage")
           .insert({
@@ -398,6 +543,26 @@ Deno.serve(async (req) => {
           metadata: { provider: "livemail_imap", uid, priority: inserted.priority, read_only: true },
         });
         if (logError) throw logError;
+
+        const delegation = delegationForEmail(email, analysis, prospect);
+        const { error: delegationError } = await supabase.from("ellis_delegations").upsert({
+          email_triage_id: inserted.id,
+          prospect_id: prospect?.id || null,
+          ...delegation,
+        }, { onConflict: "email_triage_id", ignoreDuplicates: true });
+        if (delegationError) throw delegationError;
+
+        if (prospect) {
+          const { data: alertSettings, error: alertSettingsError } = await supabase.from("ellis_alert_settings").select("*").eq("setting_key", "urgent_prospect_alerts").maybeSingle();
+          if (alertSettingsError) throw alertSettingsError;
+          if (prospectQualifiesForAlert(prospect, alertSettings || {})) {
+            try {
+              await createUrgentProspectAlert(supabase, email, inserted, prospect, alertSettings || {}, delegation);
+            } catch (error) {
+              console.error("Ellis urgent prospect alert error:", error);
+            }
+          }
+        }
 
         if (senderDomain) {
           const previousHistory = Array.isArray(domainIntel?.classification_history) ? domainIntel.classification_history : [];
