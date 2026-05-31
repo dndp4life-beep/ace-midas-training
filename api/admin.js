@@ -98,7 +98,8 @@ const ellisDelegationSelect = "id, email_triage_id, prospect_id, contact_id, org
 const agentWorkQueueSelect = "id, delegation_id, linked_email_id, linked_contact_id, linked_organisation_id, linked_opportunity_id, prospect_id, task_title, task_description, assigned_agent, category, organisation_type, priority, due_date, status, activity_history, created_at, updated_at";
 const ellisUrgentAlertSelect = "id, email_triage_id, prospect_id, organisation_id, alert_type, prospect_name, sender_email, subject, summary, match_reason, recommended_action, status, email_notification_sent, provider_response, sent_at, created_at, updated_at";
 const ellisAlertSettingsSelect = "id, setting_key, alerts_enabled, notify_by_email, notification_email, minimum_prospect_score, warm_high_priority_only, cooldown_minutes, created_at, updated_at";
-const opportunitySelect = "id, organisation_id, contact_id, prospect_id, source, created_by, assigned_agent, stage, estimated_value, confidence, is_hot, hot_reason, next_action, next_action_due, last_contact_date, last_response_date, notes, status, created_at, updated_at";
+const opportunitySelect = "*";
+const opportunityQuoteSelect = "id, opportunity_id, quote_reference, quoted_value, quote_status, sent_at, expires_at, follow_up_due, notes, created_at, updated_at";
 const opportunityEmailLinkSelect = "id, opportunity_id, email_triage_id, reply_classification, suggested_stage, analysis_metadata, created_at";
 const opportunityResponseDraftSelect = "id, opportunity_id, email_triage_id, agent_name, draft_subject, draft_body, suggested_stage, suggested_follow_up_date, communication_type, confidence_score, similarity_score, trust_score, similar_approved_replies, automation_eligible, eligibility_reason, status, created_at, updated_at";
 const miaCommunicationSettingsSelect = "id, setting_key, approval_level, trust_threshold, confidence_threshold, automation_enabled, approved_categories, paused, created_at, updated_at";
@@ -107,6 +108,20 @@ const miaCommunicationMemorySelect = "id, opportunity_id, response_draft_id, ema
 const miaFollowUpSequenceSelect = "id, opportunity_id, prospect_id, communication_type, status, current_step, next_scheduled_for, stop_reason, metadata, created_at, updated_at";
 const miaFollowUpSequenceStepSelect = "id, sequence_id, step_number, step_label, scheduled_for, status, response_draft_id, metadata, created_at, updated_at";
 const opportunityStages = ["Prospect Found", "Outreach Sent", "Contact Engaged", "Information Requested", "Quote Requested", "Quote Sent", "Follow-Up Due", "Negotiation", "Won", "Lost", "Dormant"];
+const opportunityStageProbabilities = {
+  "Prospect Found": 10,
+  "Outreach Sent": 15,
+  "Contact Engaged": 30,
+  "Information Requested": 40,
+  "Quote Requested": 55,
+  "Quote Sent": 65,
+  "Follow-Up Due": 60,
+  "Negotiation": 75,
+  "Won": 100,
+  "Lost": 0,
+  "Dormant": 5
+};
+const opportunityServiceTypes = ["PATS", "PATS Accessible", "MiDAS", "MiDAS Refresher", "First Aid", "Compliance Support", "Mixed Opportunity"];
 const miaRestrictedCommunicationTypes = ["Complaint", "Legal / Compliance", "Safeguarding", "Invoice / Payment", "Payment Dispute", "Council Tender", "Contract Negotiation", "Low Confidence"];
 const flexibleSelect = "*";
 const recommendedServices = ["First Aid", "PATS", "MiDAS", "Refresher Training", "Compliance Tracking Support", "Mixed Opportunity"];
@@ -1394,6 +1409,115 @@ function buildOpportunityMetrics(opportunities, tasks) {
   };
 }
 
+function opportunityStageProbability(stage) {
+  return opportunityStageProbabilities[stage] ?? 10;
+}
+
+function opportunityExpectedValue(opportunity) {
+  const estimatedValue = Math.max(0, Number(opportunity?.estimated_value || 0));
+  const probability = Math.max(0, Math.min(100, Number(opportunity?.probability ?? opportunityStageProbability(opportunity?.stage))));
+  return Math.round(estimatedValue * probability) / 100;
+}
+
+function opportunityServiceEstimate(serviceType, participantCount) {
+  const participants = Math.max(0, Number(participantCount || 0));
+  const configured = {
+    PATS: { unit_price: 125, source: "Website price: PATS Standard" },
+    "PATS Accessible": { unit_price: 170, source: "Website price midpoint: PATS Accessible", review: true },
+    MiDAS: { unit_price: 165, source: "Website price: MiDAS Standard" }
+  }[serviceType];
+  if (!configured || !participants) return { estimated_value: 0, value_review_required: true, value_estimate_source: "Needs Value Review" };
+  return {
+    estimated_value: configured.unit_price * participants,
+    value_review_required: Boolean(configured.review),
+    value_estimate_source: configured.source
+  };
+}
+
+async function getOpportunityQuotes(supabase) {
+  const { data, error } = await supabase.from("opportunity_quotes").select(opportunityQuoteSelect).order("updated_at", { ascending: false }).limit(500);
+  if (!error) return data || [];
+  if (["42P01", "PGRST205"].includes(error.code)) return [];
+  throw error;
+}
+
+function revenueMonthKey(value) {
+  if (!value) return "";
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+}
+
+function buildRevenueIntelligence(opportunities, quotes) {
+  const allOpportunities = Array.isArray(opportunities) ? opportunities : [];
+  const quoteList = Array.isArray(quotes) ? quotes : [];
+  const active = allOpportunities.filter((item) => item.status === "open");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayTime = today.getTime();
+  const withinDays = (item, days) => {
+    if (!item.expected_close_date) return false;
+    const closeTime = new Date(`${item.expected_close_date}T00:00:00`).getTime();
+    return Number.isFinite(closeTime) && closeTime >= todayTime && closeTime <= todayTime + days * 86400000;
+  };
+  const totalFor = (list, field = "estimated_value") => list.reduce((sum, item) => sum + Math.max(0, Number(item?.[field] || 0)), 0);
+  const expectedFor = (list) => list.reduce((sum, item) => sum + opportunityExpectedValue(item), 0);
+  const quotesAwaiting = quoteList.filter((item) => ["Sent", "Awaiting Response"].includes(item.quote_status));
+  const pipelineByStage = opportunityStages.map((stage) => {
+    const rows = active.filter((item) => item.stage === stage);
+    return { stage, count: rows.length, estimated_value: totalFor(rows), expected_value: expectedFor(rows) };
+  }).filter((item) => item.count);
+  const serviceTypes = [...new Set(active.map((item) => item.service_type || "Mixed Opportunity"))];
+  const revenueByService = serviceTypes.map((service_type) => {
+    const rows = active.filter((item) => (item.service_type || "Mixed Opportunity") === service_type);
+    return { service_type, count: rows.length, estimated_value: totalFor(rows), expected_value: expectedFor(rows) };
+  }).sort((a, b) => b.estimated_value - a.estimated_value);
+  const forecastMonths = {};
+  for (const item of active) {
+    const key = revenueMonthKey(item.expected_close_date);
+    if (!key) continue;
+    forecastMonths[key] = (forecastMonths[key] || 0) + opportunityExpectedValue(item);
+  }
+  const needsValueReview = active.filter((item) => item.value_review_required || Number(item.estimated_value || 0) <= 0);
+  const hotWithoutAction = active.filter((item) => item.is_hot && !item.next_action);
+  const stalledHighValue = active.filter((item) => Number(item.estimated_value || 0) >= 1000 && item.next_action_due && item.next_action_due < today.toISOString().slice(0, 10));
+  const wonMissingActualValue = allOpportunities.filter((item) => item.status === "won" && Number(item.actual_value || 0) <= 0);
+  const quoteOverdue = quotesAwaiting.filter((item) => item.follow_up_due && item.follow_up_due < today.toISOString().slice(0, 10));
+  const strongestService = revenueByService[0];
+  const alerts = [
+    quoteOverdue.length ? `${quoteOverdue.length} quote(s) are overdue for follow-up.` : "",
+    stalledHighValue.length ? `${stalledHighValue.length} high-value opportunity item(s) are stalled.` : "",
+    needsValueReview.length ? `${needsValueReview.length} active opportunity item(s) need a value review.` : "",
+    hotWithoutAction.length ? `${hotWithoutAction.length} hot lead(s) have no next action.` : "",
+    wonMissingActualValue.length ? `${wonMissingActualValue.length} won opportunity item(s) are missing an actual value.` : ""
+  ].filter(Boolean);
+  const insights = [
+    quotesAwaiting.length ? `\u00A3${totalFor(quotesAwaiting, "quoted_value").toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} in quotes are awaiting response.` : "No sent quotes are awaiting response.",
+    stalledHighValue.length ? `${stalledHighValue.length} high-value opportunity item(s) are overdue for follow-up.` : "No high-value opportunities are overdue for follow-up.",
+    strongestService ? `${strongestService.service_type} currently represents the strongest pipeline value.` : "Service pipeline values will appear once opportunities are valued."
+  ];
+  return {
+    metrics: {
+      total_pipeline_value: totalFor(active),
+      hot_opportunity_value: totalFor(active.filter((item) => item.is_hot)),
+      quotes_sent_value: totalFor(quoteList.filter((item) => ["Sent", "Awaiting Response", "Accepted"].includes(item.quote_status)), "quoted_value"),
+      quotes_awaiting_response: quotesAwaiting.length,
+      expected_30_day_revenue: expectedFor(active.filter((item) => withinDays(item, 30))),
+      expected_60_day_revenue: expectedFor(active.filter((item) => withinDays(item, 60))),
+      expected_90_day_revenue: expectedFor(active.filter((item) => withinDays(item, 90))),
+      won_revenue: totalFor(allOpportunities.filter((item) => item.status === "won"), "actual_value"),
+      lost_opportunity_value: totalFor(allOpportunities.filter((item) => item.status === "lost"))
+    },
+    pipeline_by_stage: pipelineByStage,
+    revenue_by_service: revenueByService,
+    forecast_by_month: Object.entries(forecastMonths).map(([month, expected_value]) => ({ month, expected_value })),
+    top_revenue_opportunities: [...active].sort((a, b) => opportunityExpectedValue(b) - opportunityExpectedValue(a)).slice(0, 8),
+    quotes_awaiting_follow_up: quotesAwaiting,
+    opportunities_needing_value_review: needsValueReview.slice(0, 12),
+    alerts,
+    insights
+  };
+}
+
 function executiveDashboardDateMatches(value, from) {
   if (!value) return false;
   const timestamp = new Date(value).getTime();
@@ -1415,7 +1539,10 @@ async function getExecutiveDashboard(supabase) {
     interactionsResult,
     alertsResult,
     learningResult,
-    repliesResult
+    repliesResult,
+    organisationsResult,
+    contactsResult,
+    quotes
   ] = await Promise.all([
     supabase.from("opportunities").select(opportunitySelect).order("updated_at", { ascending: false }).limit(500),
     supabase.from("agent_work_queue").select(agentWorkQueueSelect).order("updated_at", { ascending: false }).limit(500),
@@ -1426,9 +1553,12 @@ async function getExecutiveDashboard(supabase) {
     supabase.from("crm_interactions").select(crmInteractionSelect).order("occurred_at", { ascending: false }).limit(500),
     supabase.from("ellis_urgent_alerts").select(ellisUrgentAlertSelect).order("created_at", { ascending: false }).limit(100),
     supabase.from("ellis_learning_events").select(ellisLearningEventSelect).order("created_at", { ascending: false }).limit(500),
-    supabase.from("reply_intake").select("id, organisation_id, contact_name, contact_email, message, classification, requested_action, assigned_agent, approval_required, approval_status, created_at, updated_at").order("created_at", { ascending: false }).limit(300)
+    supabase.from("reply_intake").select("id, organisation_id, contact_name, contact_email, message, classification, requested_action, assigned_agent, approval_required, approval_status, created_at, updated_at").order("created_at", { ascending: false }).limit(300),
+    supabase.from("organisations").select("id, name").limit(500),
+    supabase.from("crm_contacts").select("id, full_name, email_address").limit(500),
+    getOpportunityQuotes(supabase)
   ]);
-  const error = opportunitiesResult.error || tasksResult.error || prospectsResult.error || memoryResult.error || linksResult.error || emailsResult.error || interactionsResult.error || alertsResult.error || learningResult.error || repliesResult.error;
+  const error = opportunitiesResult.error || tasksResult.error || prospectsResult.error || memoryResult.error || linksResult.error || emailsResult.error || interactionsResult.error || alertsResult.error || learningResult.error || repliesResult.error || organisationsResult.error || contactsResult.error;
   if (error) throw error;
 
   const now = Date.now();
@@ -1437,7 +1567,16 @@ async function getExecutiveDashboard(supabase) {
   const todayStart = startOfToday.getTime();
   const weekStart = todayStart - (6 * 86400000);
   const today = new Date().toISOString().slice(0, 10);
-  const opportunities = opportunitiesResult.data || [];
+  const organisationsById = Object.fromEntries((organisationsResult.data || []).map((item) => [item.id, item]));
+  const contactsById = Object.fromEntries((contactsResult.data || []).map((item) => [item.id, item]));
+  const prospectsById = Object.fromEntries((prospectsResult.data || []).map((item) => [item.id, item]));
+  const opportunities = (opportunitiesResult.data || []).map((item) => ({
+    ...item,
+    organisation_name: organisationsById[item.organisation_id]?.name || prospectsById[item.prospect_id]?.organisation_name || "",
+    contact_name: contactsById[item.contact_id]?.full_name || "",
+    contact_email: contactsById[item.contact_id]?.email_address || prospectsById[item.prospect_id]?.contact_email || "",
+    expected_value: opportunityExpectedValue(item)
+  }));
   const tasks = tasksResult.data || [];
   const prospects = prospectsResult.data || [];
   const memory = memoryResult.data || [];
@@ -1471,6 +1610,8 @@ async function getExecutiveDashboard(supabase) {
     pendingTheoReplies.length ? `${pendingTheoReplies.length} Theo booking decision(s) are awaiting approval.` : "No Theo booking approvals are waiting.",
     activeOpportunities.filter((item) => item.stage === "Quote Requested").length ? `${activeOpportunities.filter((item) => item.stage === "Quote Requested").length} quote request(s) need attention.` : "No new quote requests are waiting."
   ];
+
+  const revenueIntelligence = buildRevenueIntelligence(opportunities, quotes);
 
   return {
     success: true,
@@ -1512,6 +1653,7 @@ async function getExecutiveDashboard(supabase) {
       booking_confirmations_pending: pendingTheoReplies.length,
       booking_tasks_outstanding: theoQueue.length
     },
+    revenue_intelligence: revenueIntelligence,
     urgent_actions: urgentActions,
     morning_briefing: {
       greeting: "Good morning Marvin",
@@ -1520,7 +1662,7 @@ async function getExecutiveDashboard(supabase) {
       booking_actions: pendingTheoReplies.slice(0, 5),
       generated_at: new Date().toISOString()
     },
-    data_sources: ["opportunities", "agent_work_queue", "prospects", "mia_communication_memory", "opportunity_email_links", "email_triage", "crm_interactions", "ellis_urgent_alerts", "ellis_learning_events", "reply_intake"]
+    data_sources: ["opportunities", "opportunity_quotes", "agent_work_queue", "prospects", "mia_communication_memory", "opportunity_email_links", "email_triage", "crm_interactions", "ellis_urgent_alerts", "ellis_learning_events", "reply_intake"]
   };
 }
 
@@ -1538,14 +1680,15 @@ function buildOpportunityInsights(opportunities, tasks) {
 
 async function getOpportunityManagement(supabase) {
   await ensureOpportunityIntelligence(supabase);
-  const [opportunitiesResult, linksResult, draftsResult, tasksResult, organisationsResult, contactsResult, prospectsResult] = await Promise.all([
+  const [opportunitiesResult, linksResult, draftsResult, tasksResult, organisationsResult, contactsResult, prospectsResult, quotes] = await Promise.all([
     supabase.from("opportunities").select(opportunitySelect).order("updated_at", { ascending: false }).limit(500),
     supabase.from("opportunity_email_links").select(opportunityEmailLinkSelect).order("created_at", { ascending: false }).limit(1000),
     supabase.from("opportunity_response_drafts").select(opportunityResponseDraftSelect).order("created_at", { ascending: false }).limit(300),
     supabase.from("agent_work_queue").select(agentWorkQueueSelect).not("linked_opportunity_id", "is", null).order("created_at", { ascending: false }).limit(500),
     supabase.from("organisations").select("id, name").limit(500),
     supabase.from("crm_contacts").select("id, full_name, email_address").limit(500),
-    supabase.from("prospects").select("id, organisation_name, contact_email").limit(500)
+    supabase.from("prospects").select("id, organisation_name, contact_email").limit(500),
+    getOpportunityQuotes(supabase)
   ]);
   const error = opportunitiesResult.error || linksResult.error || draftsResult.error || tasksResult.error || organisationsResult.error || contactsResult.error || prospectsResult.error;
   if (error) throw error;
@@ -1559,7 +1702,7 @@ async function getOpportunityManagement(supabase) {
     contact_email: contacts[item.contact_id]?.email_address || prospects[item.prospect_id]?.contact_email || ""
   }));
   const tasks = tasksResult.data || [];
-  return { success: true, opportunities, email_links: linksResult.data || [], drafts: draftsResult.data || [], tasks, metrics: buildOpportunityMetrics(opportunities, tasks), insights: buildOpportunityInsights(opportunities, tasks), stages: opportunityStages };
+  return { success: true, opportunities, quotes, email_links: linksResult.data || [], drafts: draftsResult.data || [], tasks, metrics: buildOpportunityMetrics(opportunities, tasks), insights: buildOpportunityInsights(opportunities, tasks), revenue_intelligence: buildRevenueIntelligence(opportunities, quotes), stages: opportunityStages, service_types: opportunityServiceTypes };
 }
 
 async function updateOpportunity(supabase, payload) {
@@ -1569,6 +1712,12 @@ async function updateOpportunity(supabase, payload) {
   if (payload.stage && opportunityStages.includes(payload.stage)) updates.stage = payload.stage;
   if (payload.assigned_agent) updates.assigned_agent = String(payload.assigned_agent);
   if (Object.prototype.hasOwnProperty.call(payload, "estimated_value")) updates.estimated_value = Math.max(0, Number(payload.estimated_value || 0));
+  if (payload.service_type && opportunityServiceTypes.includes(payload.service_type)) updates.service_type = payload.service_type;
+  if (Object.prototype.hasOwnProperty.call(payload, "participant_count")) updates.participant_count = Math.max(0, Number(payload.participant_count || 0));
+  if (Object.prototype.hasOwnProperty.call(payload, "quoted_value")) updates.quoted_value = Math.max(0, Number(payload.quoted_value || 0));
+  if (Object.prototype.hasOwnProperty.call(payload, "actual_value")) updates.actual_value = Math.max(0, Number(payload.actual_value || 0));
+  if (Object.prototype.hasOwnProperty.call(payload, "probability")) updates.probability = Math.max(0, Math.min(100, Number(payload.probability || 0)));
+  if (Object.prototype.hasOwnProperty.call(payload, "expected_close_date")) updates.expected_close_date = payload.expected_close_date || null;
   if (Object.prototype.hasOwnProperty.call(payload, "next_action")) updates.next_action = String(payload.next_action || "").trim() || null;
   if (Object.prototype.hasOwnProperty.call(payload, "next_action_due")) updates.next_action_due = payload.next_action_due || null;
   if (payload.status && ["open", "won", "lost", "dormant"].includes(payload.status)) updates.status = payload.status;
@@ -1576,11 +1725,50 @@ async function updateOpportunity(supabase, payload) {
   if (updates.stage === "Won") updates.status = "won";
   if (updates.stage === "Lost") updates.status = "lost";
   if (updates.stage === "Dormant") updates.status = "dormant";
+  if (!Object.prototype.hasOwnProperty.call(updates, "estimated_value") && (updates.service_type || Object.prototype.hasOwnProperty.call(updates, "participant_count"))) {
+    const { data: current, error: currentError } = await supabase.from("opportunities").select("service_type, participant_count").eq("id", id).single();
+    if (currentError) throw currentError;
+    Object.assign(updates, opportunityServiceEstimate(updates.service_type || current.service_type, Object.prototype.hasOwnProperty.call(updates, "participant_count") ? updates.participant_count : current.participant_count));
+  }
   const { data, error } = await supabase.from("opportunities").update(updates).eq("id", id).select(opportunitySelect).single();
   if (error) throw error;
   if (data.prospect_id) await supabase.from("prospects").update({ pipeline_stage: data.stage, updated_at: new Date().toISOString() }).eq("id", data.prospect_id);
   await ensureStageFollowUpTask(supabase, data);
   await insertEllisActivity(supabase, { action_type: "opportunity_updated", summary: `Opportunity updated to ${data.stage}.`, metadata: { opportunity_id: id, updates } });
+  return getOpportunityManagement(supabase);
+}
+
+async function saveOpportunityQuote(supabase, payload) {
+  const opportunityId = payload?.opportunity_id;
+  if (!opportunityId) throw new Error("Opportunity id is required.");
+  const quotedValue = Math.max(0, Number(payload.quoted_value || 0));
+  const quoteStatus = ["Draft", "Sent", "Awaiting Response", "Accepted", "Rejected", "Expired"].includes(payload.quote_status) ? payload.quote_status : "Draft";
+  const now = new Date().toISOString();
+  const values = {
+    opportunity_id: opportunityId,
+    quote_reference: String(payload.quote_reference || `ACE-${now.slice(0, 10).replace(/-/g, "")}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`).trim(),
+    quoted_value: quotedValue,
+    quote_status: quoteStatus,
+    sent_at: payload.sent_at || null,
+    expires_at: payload.expires_at || null,
+    follow_up_due: payload.follow_up_due || null,
+    notes: String(payload.notes || "").trim() || null,
+    updated_at: now
+  };
+  const query = payload.id
+    ? supabase.from("opportunity_quotes").update(values).eq("id", payload.id)
+    : supabase.from("opportunity_quotes").insert(values);
+  const { data, error } = await query.select(opportunityQuoteSelect).single();
+  if (error) throw error;
+  const opportunityUpdates = { quoted_value: quotedValue, updated_at: now };
+  if (quoteStatus === "Accepted") {
+    opportunityUpdates.actual_value = quotedValue;
+    opportunityUpdates.stage = "Won";
+    opportunityUpdates.status = "won";
+  }
+  const { error: updateError } = await supabase.from("opportunities").update(opportunityUpdates).eq("id", opportunityId);
+  if (updateError) throw updateError;
+  await insertEllisActivity(supabase, { action_type: "opportunity_quote_saved", summary: `Quote ${data.quote_reference} saved as ${data.quote_status}.`, metadata: { opportunity_id: opportunityId, quote_id: data.id, quote_status: data.quote_status } });
   return getOpportunityManagement(supabase);
 }
 
@@ -4738,6 +4926,7 @@ export default async function handler(req, res) {
       "get-executive-dashboard": getExecutiveDashboard,
       "get-opportunity-management": getOpportunityManagement,
       "update-opportunity": updateOpportunity,
+      "save-opportunity-quote": saveOpportunityQuote,
       "create-opportunity-follow-up": createOpportunityFollowUp,
       "create-opportunity-mia-draft": createOpportunityMiaDraft,
       "update-opportunity-draft": updateOpportunityDraft,
