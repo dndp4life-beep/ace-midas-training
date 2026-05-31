@@ -1012,6 +1012,11 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const [ellisConnections, setEllisConnections] = useState([]);
   const [ellisSyncHistory, setEllisSyncHistory] = useState([]);
   const [ellisSenderDomains, setEllisSenderDomains] = useState([]);
+  const [ellisDelegations, setEllisDelegations] = useState([]);
+  const [ellisAgentWorkQueue, setEllisAgentWorkQueue] = useState([]);
+  const [ellisUrgentAlerts, setEllisUrgentAlerts] = useState([]);
+  const [ellisAlertSettings, setEllisAlertSettings] = useState({ alerts_enabled: true, notify_by_email: true, notification_email: "info@ace-midas-training.co.uk", minimum_prospect_score: 75, warm_high_priority_only: true, cooldown_minutes: 1440 });
+  const [ellisQueueFilters, setEllisQueueFilters] = useState({ agent: "", priority: "", dueDate: "", status: "", category: "", organisationType: "" });
   const [ellisMetrics, setEllisMetrics] = useState({});
   const [ellisRecommendations, setEllisRecommendations] = useState([]);
   const [ellisCrm, setEllisCrm] = useState({});
@@ -1202,6 +1207,9 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const safeEllisConnections = asArray(ellisConnections).map((connection) => asObject(connection));
   const safeEllisSyncHistory = asArray(ellisSyncHistory).map((sync) => ({ ...asObject(sync), errors: asArray(asObject(sync).errors) }));
   const safeEllisSenderDomains = asArray(ellisSenderDomains).map((domain) => ({ ...asObject(domain), classification_history: asArray(asObject(domain).classification_history) }));
+  const safeEllisDelegations = asArray(ellisDelegations).map((delegation) => ({ ...asObject(delegation), handoff_note: asObject(asObject(delegation).handoff_note), activity_history: asArray(asObject(delegation).activity_history) }));
+  const safeEllisAgentWorkQueue = asArray(ellisAgentWorkQueue).map((task) => ({ ...asObject(task), activity_history: asArray(asObject(task).activity_history) }));
+  const safeEllisUrgentAlerts = asArray(ellisUrgentAlerts).map((alert) => asObject(alert));
   const safeEllisCrm = asObject(ellisCrm);
   const safeEllisCrmContacts = asArray(safeEllisCrm.contacts).map((contact) => asObject(contact));
   const safeEllisCrmOrganisations = asArray(safeEllisCrm.organisations).map((organisation) => asObject(organisation));
@@ -1224,6 +1232,16 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const nextEllisSyncAt = latestEllisSync?.completed_at ? new Date(new Date(latestEllisSync.completed_at).getTime() + 10 * 60 * 1000).toISOString() : "";
   const latestEllisBriefing = safeEllisBriefings[0] || null;
   const ellisRouteOptions = ["Ellis", "Mia", "Theo", "Rory", "Ava", "Marvin"];
+  const pendingEllisDelegations = safeEllisDelegations.filter((delegation) => !["Approved", "Reviewed", "Cancelled"].includes(delegation.review_status));
+  const filteredAgentWorkQueue = safeEllisAgentWorkQueue.filter((task) => {
+    if (ellisQueueFilters.agent && task.assigned_agent !== ellisQueueFilters.agent) return false;
+    if (ellisQueueFilters.priority && task.priority !== ellisQueueFilters.priority) return false;
+    if (ellisQueueFilters.dueDate && task.due_date !== ellisQueueFilters.dueDate) return false;
+    if (ellisQueueFilters.status && task.status !== ellisQueueFilters.status) return false;
+    if (ellisQueueFilters.category && task.category !== ellisQueueFilters.category) return false;
+    if (ellisQueueFilters.organisationType && task.organisation_type !== ellisQueueFilters.organisationType) return false;
+    return true;
+  });
   const miaNeedsReviewQuestions = safeMiaVisitorQuestions.filter((question) => question.needs_review || question.status === "Needs admin review");
   const miaLeadQuestions = safeMiaVisitorQuestions.filter((question) => question.email || question.phone || question.organisation);
   const safeOnboarding = asArray(onboarding).map((item) => asObject(item));
@@ -2371,6 +2389,10 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     setEllisConnections(result.connections || []);
     setEllisSyncHistory(result.sync_history || []);
     setEllisSenderDomains(result.sender_domains || []);
+    setEllisDelegations(result.delegations || []);
+    setEllisAgentWorkQueue(result.agent_work_queue || []);
+    setEllisUrgentAlerts(result.urgent_alerts || []);
+    if (result.alert_settings) setEllisAlertSettings(result.alert_settings);
     setEllisMetrics(result.metrics || {});
     setEllisRecommendations(result.recommendations || []);
     setEllisCrm(result.crm || {});
@@ -2503,6 +2525,66 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     } catch (error) {
       console.error("Ellis task update error:", error);
       showMessage("error", "Could not update task.");
+    } finally {
+      setEllisBusy("");
+    }
+  }
+
+  async function updateEllisDelegation(delegation, updates, message = "Delegation updated.") {
+    setEllisBusy(delegation.id);
+    try {
+      const { response, result } = await callAdminAction("update-ellis-delegation", { id: delegation.id, ...updates });
+      if (!response.ok) return showMessage("error", result.error || "Could not update delegation.");
+      applyEllisOperationsResult(result);
+      showMessage("success", message);
+    } catch (error) {
+      console.error("Ellis delegation update error:", error);
+      showMessage("error", "Could not update delegation.");
+    } finally {
+      setEllisBusy("");
+    }
+  }
+
+  async function approveEllisDelegation(delegation) {
+    setEllisBusy(delegation.id);
+    try {
+      const { response, result } = await callAdminAction("approve-ellis-delegation", { id: delegation.id, selected_agent: delegation.selected_agent || delegation.recommended_agent });
+      if (!response.ok) return showMessage("error", result.error || "Could not approve delegation.");
+      applyEllisOperationsResult(result);
+      showMessage("success", "Delegation approved and agent queue task created.");
+    } catch (error) {
+      console.error("Ellis delegation approval error:", error);
+      showMessage("error", "Could not approve delegation.");
+    } finally {
+      setEllisBusy("");
+    }
+  }
+
+  async function updateAgentQueueTask(task, updates) {
+    setEllisBusy(task.id);
+    try {
+      const { response, result } = await callAdminAction("update-agent-work-queue-task", { id: task.id, ...updates });
+      if (!response.ok) return showMessage("error", result.error || "Could not update agent queue task.");
+      applyEllisOperationsResult(result);
+      showMessage("success", "Agent queue task updated.");
+    } catch (error) {
+      console.error("Agent queue update error:", error);
+      showMessage("error", "Could not update agent queue task.");
+    } finally {
+      setEllisBusy("");
+    }
+  }
+
+  async function saveEllisAlertSettings() {
+    setEllisBusy("alert-settings");
+    try {
+      const { response, result } = await callAdminAction("save-ellis-alert-settings", { settings: ellisAlertSettings });
+      if (!response.ok) return showMessage("error", result.error || "Could not save urgent alert settings.");
+      applyEllisOperationsResult(result);
+      showMessage("success", "Urgent prospect alert settings saved.");
+    } catch (error) {
+      console.error("Ellis alert settings error:", error);
+      showMessage("error", "Could not save urgent alert settings.");
     } finally {
       setEllisBusy("");
     }
@@ -5287,6 +5369,60 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                           {safeEllisCrmInsights.length ? safeEllisCrmInsights.slice(0, 6).map((insight) => <p key={insight.id} className="rounded-lg bg-white p-3 text-sm font-semibold text-slate-700">{safeText(insight.insight_text, "No insight text")}</p>) : <p className="text-sm font-semibold text-slate-600">Insights will appear as organisational history grows.</p>}
                         </div>
                       </div>
+                    </div>
+                  </section>
+
+                  <section className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-5 shadow-sm">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div><h3 className="text-xl font-black text-red-900">Urgent Prospect Alerts</h3><p className="mt-1 text-sm font-semibold text-red-800">In-app alerts appear when an incoming email matches a warm or high-value Rory prospect.</p></div>
+                      <span className="rounded-full bg-white px-3 py-2 text-xs font-black text-red-800">{safeEllisUrgentAlerts.length} alert(s)</span>
+                    </div>
+                    <div className="mt-4 grid gap-3">
+                      {safeEllisUrgentAlerts.length ? safeEllisUrgentAlerts.slice(0, 6).map((alert) => <article key={alert.id} className="rounded-xl border border-red-200 bg-white p-4">
+                        <p className="text-xs font-black uppercase text-red-700">{safeText(alert.status, "in_app")} · {alert.email_notification_sent ? "Email notification sent" : "In-app alert"}</p>
+                        <h4 className="mt-2 font-black">{safeText(alert.prospect_name, "Rory prospect")}: {safeText(alert.subject, "No subject")}</h4>
+                        <p className="mt-1 text-sm font-semibold text-slate-600">{safeText(alert.sender_email, "No sender")}</p>
+                        <p className="mt-2 text-sm text-slate-700">{safeText(alert.summary, "No summary available")}</p>
+                        <p className="mt-2 text-xs font-bold text-red-700">{safeText(alert.match_reason, "Matched a Rory prospect.")}</p>
+                      </article>) : <p className="rounded-xl bg-white p-4 text-sm font-bold text-red-800">No urgent Rory prospect alerts yet.</p>}
+                    </div>
+                  </section>
+
+                  <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <h3 className="text-xl font-black">Urgent Prospect Alert Settings</h3>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                      <label className="flex items-center gap-2 rounded-xl bg-slate-50 p-3 text-sm font-bold"><input type="checkbox" checked={ellisAlertSettings.alerts_enabled !== false} onChange={(e) => setEllisAlertSettings((current) => ({ ...current, alerts_enabled: e.target.checked }))} /> Urgent alerts enabled</label>
+                      <label className="flex items-center gap-2 rounded-xl bg-slate-50 p-3 text-sm font-bold"><input type="checkbox" checked={ellisAlertSettings.notify_by_email !== false} onChange={(e) => setEllisAlertSettings((current) => ({ ...current, notify_by_email: e.target.checked }))} /> Notify Marvin by email</label>
+                      <label className="flex items-center gap-2 rounded-xl bg-slate-50 p-3 text-sm font-bold"><input type="checkbox" checked={ellisAlertSettings.warm_high_priority_only !== false} onChange={(e) => setEllisAlertSettings((current) => ({ ...current, warm_high_priority_only: e.target.checked }))} /> Warm/high-priority only</label>
+                      <input type="email" value={ellisAlertSettings.notification_email || ""} onChange={(e) => setEllisAlertSettings((current) => ({ ...current, notification_email: e.target.value }))} className="rounded-xl border border-slate-200 p-3 text-sm" placeholder="Notification email" />
+                      <input type="number" min="0" max="100" value={ellisAlertSettings.minimum_prospect_score || 75} onChange={(e) => setEllisAlertSettings((current) => ({ ...current, minimum_prospect_score: e.target.value }))} className="rounded-xl border border-slate-200 p-3 text-sm" placeholder="Minimum prospect score" />
+                      <input type="number" min="1" value={ellisAlertSettings.cooldown_minutes || 1440} onChange={(e) => setEllisAlertSettings((current) => ({ ...current, cooldown_minutes: e.target.value }))} className="rounded-xl border border-slate-200 p-3 text-sm" placeholder="Cooldown minutes" />
+                    </div>
+                    <button type="button" onClick={saveEllisAlertSettings} disabled={ellisBusy === "alert-settings"} className="mt-4 rounded-xl bg-slate-950 px-4 py-3 text-sm font-black text-white disabled:opacity-60">{ellisBusy === "alert-settings" ? "Saving..." : "Save Alert Settings"}</button>
+                  </section>
+
+                  <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="text-xl font-black">Suggested Delegations</h3><p className="mt-1 text-sm font-semibold text-slate-600">Ellis prepares handoffs. An agent queue task is created only after you approve it.</p></div><span className="rounded-full bg-amber-50 px-3 py-2 text-xs font-black text-amber-800">{pendingEllisDelegations.length} pending</span></div>
+                    <div className="mt-5 grid gap-3">
+                      {pendingEllisDelegations.length ? pendingEllisDelegations.slice(0, 20).map((delegation) => <article key={delegation.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-center"><div><p className="font-black">{safeText(delegation.recommended_task_title, "Review email")}</p><p className="mt-1 text-sm font-semibold text-slate-600">{safeText(delegation.sender_email, "No sender")} · {safeText(delegation.category, "Review Later")} · {Number(delegation.confidence_score || 0)}%</p><p className="mt-2 text-sm text-slate-700">{safeText(delegation.summary, "No summary available")}</p><p className="mt-2 text-xs font-bold text-slate-500">{safeText(delegation.reason_for_recommendation, "Review recommended.")}</p></div><div className="flex flex-wrap gap-2"><select value={delegation.selected_agent || delegation.recommended_agent || "Ellis"} onChange={(e) => updateEllisDelegation(delegation, { selected_agent: e.target.value, review_status: "Reassigned" }, "Delegation reassigned.")} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black">{ellisRouteOptions.map((agent) => <option key={agent}>{agent}</option>)}</select><button type="button" onClick={() => approveEllisDelegation(delegation)} disabled={ellisBusy === delegation.id} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white">Approve Delegation</button><button type="button" onClick={() => updateEllisDelegation(delegation, { review_status: "Reviewed" }, "Delegation marked reviewed.")} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black">Mark Reviewed</button><button type="button" onClick={() => updateEllisDelegation(delegation, { review_status: "Undone", selected_agent: delegation.recommended_agent }, "Delegation decision undone.")} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black">Undo</button></div></div>
+                      </article>) : <p className="rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-600">No suggested delegations are waiting for review.</p>}
+                    </div>
+                  </section>
+
+                  <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <h3 className="text-xl font-black">Agent Work Queues</h3>
+                    <p className="mt-1 text-sm font-semibold text-slate-600">Approved tasks remain operational work items. No queue action sends customer emails automatically.</p>
+                    <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+                      <select value={ellisQueueFilters.agent} onChange={(e) => setEllisQueueFilters((current) => ({ ...current, agent: e.target.value }))} className="rounded-xl border border-slate-200 p-3 text-sm"><option value="">All agents</option>{ellisRouteOptions.map((agent) => <option key={agent}>{agent}</option>)}</select>
+                      <select value={ellisQueueFilters.priority} onChange={(e) => setEllisQueueFilters((current) => ({ ...current, priority: e.target.value }))} className="rounded-xl border border-slate-200 p-3 text-sm"><option value="">All priorities</option>{ellisPriorityOptions.map((priority) => <option key={priority}>{priority}</option>)}</select>
+                      <input type="date" value={ellisQueueFilters.dueDate} onChange={(e) => setEllisQueueFilters((current) => ({ ...current, dueDate: e.target.value }))} className="rounded-xl border border-slate-200 p-3 text-sm" aria-label="Filter tasks by due date" />
+                      <select value={ellisQueueFilters.status} onChange={(e) => setEllisQueueFilters((current) => ({ ...current, status: e.target.value }))} className="rounded-xl border border-slate-200 p-3 text-sm"><option value="">All statuses</option>{["New", "In Progress", "Waiting for Marvin", "Waiting for Customer", "Completed", "Cancelled"].map((status) => <option key={status}>{status}</option>)}</select>
+                      <select value={ellisQueueFilters.category} onChange={(e) => setEllisQueueFilters((current) => ({ ...current, category: e.target.value }))} className="rounded-xl border border-slate-200 p-3 text-sm"><option value="">All categories</option>{ellisCategoryOptions.map((category) => <option key={category}>{category}</option>)}</select>
+                      <select value={ellisQueueFilters.organisationType} onChange={(e) => setEllisQueueFilters((current) => ({ ...current, organisationType: e.target.value }))} className="rounded-xl border border-slate-200 p-3 text-sm"><option value="">All organisation types</option>{["Local Authority", "School / Academy Trust", "Supplier", "Customer", "Other"].map((type) => <option key={type}>{type}</option>)}</select>
+                    </div>
+                    <div className="mt-5 grid gap-3">
+                      {filteredAgentWorkQueue.length ? filteredAgentWorkQueue.map((task) => <article key={task.id} className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 lg:grid-cols-[1fr_auto] lg:items-center"><div><div className="flex flex-wrap gap-2"><span className="rounded-full bg-slate-950 px-3 py-1 text-xs font-black text-white">{safeText(task.assigned_agent, "Ellis")}</span><span className="rounded-full bg-white px-3 py-1 text-xs font-black">{safeText(task.priority, "Medium")}</span><span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-800">{safeText(task.status, "New")}</span></div><h4 className="mt-3 font-black">{safeText(task.task_title, "Untitled task")}</h4><p className="mt-1 text-sm text-slate-600">{safeText(task.task_description, "No description")}</p><p className="mt-2 text-xs font-bold text-slate-500">Due: {task.due_date ? formatDisplayDate(task.due_date) : "Not set"} · {safeText(task.category, "Review Later")}</p></div><div className="grid gap-2"><select value={task.assigned_agent || "Ellis"} onChange={(e) => updateAgentQueueTask(task, { assigned_agent: e.target.value })} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black">{ellisRouteOptions.map((agent) => <option key={agent}>{agent}</option>)}</select><select value={task.status || "New"} onChange={(e) => updateAgentQueueTask(task, { status: e.target.value })} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black">{["New", "In Progress", "Waiting for Marvin", "Waiting for Customer", "Completed", "Cancelled"].map((status) => <option key={status}>{status}</option>)}</select></div></article>) : <p className="rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-600">No approved agent queue tasks match these filters.</p>}
                     </div>
                   </section>
 
