@@ -350,6 +350,86 @@ async function createUrgentProspectAlert(supabase: ReturnType<typeof createClien
   }).eq("id", alert.id);
 }
 
+function analyseOpportunityReply(email: Record<string, string>) {
+  const text = `${email.subject || ""} ${email.raw_excerpt || ""}`.toLowerCase();
+  const has = (...terms: string[]) => terms.some((term) => text.includes(term));
+  if (has("complaint", "legal", "safeguarding", "payment dispute", "invoice dispute")) return { reply_classification: "complaint", suggested_stage: "Contact Engaged", assigned_agent: "Marvin", is_hot: true, hot_reason: "Sensitive customer message requires Marvin review.", next_action: "Review personally before any response.", due_days: 0 };
+  if (has("quote", "quotation", "proposal", "cost", "price")) return { reply_classification: "quote request", suggested_stage: "Quote Requested", assigned_agent: "Mia", is_hot: true, hot_reason: "The contact requested pricing or a quote.", next_action: "Prepare a quote response for review.", due_days: 1 };
+  if (has("meeting", "call", "speak", "appointment")) return { reply_classification: "meeting request", suggested_stage: "Contact Engaged", assigned_agent: "Mia", is_hot: true, hot_reason: "The contact requested a conversation.", next_action: "Prepare a meeting follow-up for review.", due_days: 1 };
+  if (has("interested", "tell me more", "more information", "details", "how do we", "can you help")) return { reply_classification: "interested", suggested_stage: "Information Requested", assigned_agent: "Mia", is_hot: true, hot_reason: "The contact asked for more information.", next_action: "Prepare a helpful information response for review.", due_days: 2 };
+  if (has("out of office", "automatic reply", "auto-reply", "away from the office")) return { reply_classification: "out of office", suggested_stage: "Follow-Up Due", assigned_agent: "Mia", is_hot: false, hot_reason: "", next_action: "Schedule a follow-up after the contact returns.", due_days: 7 };
+  if (has("not interested", "no thanks", "not relevant", "unsubscribe", "do not contact")) return { reply_classification: "not interested", suggested_stage: "Lost", assigned_agent: "Mia", is_hot: false, hot_reason: "", next_action: "Review the response and update the opportunity if appropriate.", due_days: 0 };
+  return { reply_classification: "other", suggested_stage: "Contact Engaged", assigned_agent: "Mia", is_hot: true, hot_reason: "A known Rory prospect replied.", next_action: "Review the reply and prepare the next step.", due_days: 3 };
+}
+
+async function linkProspectOpportunity(supabase: ReturnType<typeof createClient>, email: Record<string, string>, inserted: Record<string, string>, prospect: Record<string, unknown>) {
+  const analysis = analyseOpportunityReply(email);
+  const { data: existing, error: existingError } = await supabase.from("opportunities").select("*").eq("prospect_id", prospect.id).maybeSingle();
+  if (existingError) throw existingError;
+  let opportunity = existing;
+  if (!opportunity) {
+    const { data, error } = await supabase.from("opportunities").insert({
+      prospect_id: prospect.id,
+      source: "Rory Prospecting Centre",
+      created_by: "Rory",
+      assigned_agent: analysis.assigned_agent,
+      stage: "Prospect Found",
+      confidence: Number(prospect.score || 0),
+      notes: `Created automatically after an inbox reply from a known Rory prospect.`,
+    }).select("*").single();
+    if (error) throw error;
+    opportunity = data;
+  }
+  const terminal = ["Won", "Lost", "Dormant"].includes(String(opportunity.stage || ""));
+  const suggestedStage = ["Lost", "Dormant"].includes(analysis.suggested_stage) || terminal ? opportunity.stage : analysis.suggested_stage;
+  const dueDate = new Date();
+  dueDate.setUTCDate(dueDate.getUTCDate() + analysis.due_days);
+  const { error: updateError } = await supabase.from("opportunities").update({
+    assigned_agent: analysis.assigned_agent,
+    stage: suggestedStage,
+    is_hot: Boolean(opportunity.is_hot || analysis.is_hot),
+    hot_reason: analysis.hot_reason || opportunity.hot_reason || null,
+    next_action: analysis.next_action,
+    next_action_due: dueDate.toISOString().slice(0, 10),
+    last_response_date: email.received_at || new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }).eq("id", opportunity.id);
+  if (updateError) throw updateError;
+  const { error: linkError } = await supabase.from("opportunity_email_links").upsert({
+    opportunity_id: opportunity.id,
+    email_triage_id: inserted.id,
+    reply_classification: analysis.reply_classification,
+    suggested_stage: analysis.suggested_stage,
+    analysis_metadata: analysis,
+  }, { onConflict: "email_triage_id" });
+  if (linkError) throw linkError;
+  const { error: prospectError } = await supabase.from("prospects").update({
+    opportunity_id: opportunity.id,
+    pipeline_stage: suggestedStage,
+    updated_at: new Date().toISOString(),
+  }).eq("id", prospect.id);
+  if (prospectError) throw prospectError;
+  const { data: existingTasks, error: taskFindError } = await supabase.from("agent_work_queue").select("id").eq("linked_opportunity_id", opportunity.id).eq("linked_email_id", inserted.id).limit(1);
+  if (taskFindError) throw taskFindError;
+  if (!existingTasks?.length) {
+    const { error: taskError } = await supabase.from("agent_work_queue").insert({
+      linked_email_id: inserted.id,
+      linked_opportunity_id: opportunity.id,
+      prospect_id: prospect.id,
+      task_title: `${analysis.assigned_agent}: ${analysis.next_action}`.slice(0, 180),
+      task_description: email.raw_excerpt.slice(0, 500),
+      assigned_agent: analysis.assigned_agent,
+      category: "Follow-Up Required",
+      organisation_type: "Other",
+      priority: analysis.is_hot ? "High" : "Medium",
+      due_date: dueDate.toISOString().slice(0, 10),
+      status: "New",
+      activity_history: [{ action: "opportunity_follow_up_suggested_from_inbox_sync", recorded_at: new Date().toISOString() }],
+    });
+    if (taskError) throw taskError;
+  }
+}
+
 function classifyEmail(email: Record<string, string>, domainIntel: Record<string, unknown> | null = null) {
   const text = `${email.sender_name} ${email.sender_email} ${email.subject} ${email.raw_excerpt}`.toLowerCase();
   const has = (...values: string[]) => values.some((value) => text.includes(value));
@@ -553,6 +633,7 @@ Deno.serve(async (req) => {
         if (delegationError) throw delegationError;
 
         if (prospect) {
+          await linkProspectOpportunity(supabase, email, inserted, prospect);
           const { data: alertSettings, error: alertSettingsError } = await supabase.from("ellis_alert_settings").select("*").eq("setting_key", "urgent_prospect_alerts").maybeSingle();
           if (alertSettingsError) throw alertSettingsError;
           if (prospectQualifiesForAlert(prospect, alertSettings || {})) {
