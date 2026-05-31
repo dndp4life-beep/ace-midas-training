@@ -1,0 +1,4 @@
+create index if not exists mia_communication_memory_contact_id_idx on public.mia_communication_memory(contact_id);
+create index if not exists mia_communication_memory_organisation_id_idx on public.mia_communication_memory(organisation_id);
+create index if not exists mia_follow_up_sequences_prospect_id_idx on public.mia_follow_up_sequences(prospect_id);
+create index if not exists mia_follow_up_sequence_steps_response_draft_id_idx on public.mia_follow_up_sequence_steps(response_draft_id);
