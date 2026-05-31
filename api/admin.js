@@ -100,8 +100,14 @@ const ellisUrgentAlertSelect = "id, email_triage_id, prospect_id, organisation_i
 const ellisAlertSettingsSelect = "id, setting_key, alerts_enabled, notify_by_email, notification_email, minimum_prospect_score, warm_high_priority_only, cooldown_minutes, created_at, updated_at";
 const opportunitySelect = "id, organisation_id, contact_id, prospect_id, source, created_by, assigned_agent, stage, estimated_value, confidence, is_hot, hot_reason, next_action, next_action_due, last_contact_date, last_response_date, notes, status, created_at, updated_at";
 const opportunityEmailLinkSelect = "id, opportunity_id, email_triage_id, reply_classification, suggested_stage, analysis_metadata, created_at";
-const opportunityResponseDraftSelect = "id, opportunity_id, email_triage_id, agent_name, draft_subject, draft_body, suggested_stage, suggested_follow_up_date, status, created_at, updated_at";
+const opportunityResponseDraftSelect = "id, opportunity_id, email_triage_id, agent_name, draft_subject, draft_body, suggested_stage, suggested_follow_up_date, communication_type, confidence_score, similarity_score, trust_score, similar_approved_replies, automation_eligible, eligibility_reason, status, created_at, updated_at";
+const miaCommunicationSettingsSelect = "id, setting_key, approval_level, trust_threshold, confidence_threshold, automation_enabled, approved_categories, paused, created_at, updated_at";
+const miaCommunicationTrustSelect = "id, communication_type, approvals, overrides, edits, rejections, successful_outcomes, sent_count, trust_percentage, automation_allowed, last_reviewed_at, created_at, updated_at";
+const miaCommunicationMemorySelect = "id, opportunity_id, response_draft_id, email_triage_id, contact_id, organisation_id, communication_type, opportunity_stage, contact_type, organisation_type, enquiry_type, email_category, response_template_used, draft_subject, draft_body, final_subject, final_body, approval_outcome, follow_up_outcome, confidence_score, similarity_score, trust_score, metadata, created_at, updated_at";
+const miaFollowUpSequenceSelect = "id, opportunity_id, prospect_id, communication_type, status, current_step, next_scheduled_for, stop_reason, metadata, created_at, updated_at";
+const miaFollowUpSequenceStepSelect = "id, sequence_id, step_number, step_label, scheduled_for, status, response_draft_id, metadata, created_at, updated_at";
 const opportunityStages = ["Prospect Found", "Outreach Sent", "Contact Engaged", "Information Requested", "Quote Requested", "Quote Sent", "Follow-Up Due", "Negotiation", "Won", "Lost", "Dormant"];
+const miaRestrictedCommunicationTypes = ["Complaint", "Legal / Compliance", "Safeguarding", "Invoice / Payment", "Payment Dispute", "Council Tender", "Contract Negotiation", "Low Confidence"];
 const flexibleSelect = "*";
 const recommendedServices = ["First Aid", "PATS", "MiDAS", "Refresher Training", "Compliance Tracking Support", "Mixed Opportunity"];
 const rorySearchThemes = ["First Aid training prospects", "PATS training prospects", "MiDAS training prospects", "refresher training prospects", "schools/trusts", "charities/community organisations", "care providers", "hospitality/businesses"];
@@ -993,6 +999,281 @@ ACE MiDAS Training`;
   return { subject, body };
 }
 
+function clampPercentage(value) {
+  return Math.max(0, Math.min(100, Math.round(Number(value || 0))));
+}
+
+function calculateMiaTrust(profile = {}) {
+  return clampPercentage(
+    50
+      + Number(profile.approvals || 0) * 4
+      + Number(profile.successful_outcomes || 0) * 5
+      + Number(profile.sent_count || 0) * 2
+      - Number(profile.overrides || 0) * 4
+      - Number(profile.edits || 0) * 2
+      - Number(profile.rejections || 0) * 8
+  );
+}
+
+function inferMiaCommunicationType(email = {}, analysis = {}) {
+  const text = `${email.subject || ""} ${email.summary || email.raw_excerpt || ""}`.toLowerCase();
+  if (analysis.reply_classification === "complaint" || text.includes("complaint")) return "Complaint";
+  if (text.includes("safeguarding")) return "Safeguarding";
+  if (text.includes("payment dispute")) return "Payment Dispute";
+  if (email.category === "Invoice / Payment" || text.includes("invoice")) return "Invoice / Payment";
+  if (email.category === "Compliance / Legal" || text.includes("legal")) return "Legal / Compliance";
+  if (text.includes("tender")) return "Council Tender";
+  if (text.includes("contract")) return "Contract Negotiation";
+  if (analysis.reply_classification === "quote request") return "Pricing Request";
+  if (analysis.reply_classification === "out of office") return "Follow-Up Reminder";
+  if (text.includes("pats")) return "PATS Information Request";
+  if (text.includes("midas")) return "MiDAS Information Request";
+  if (text.includes("booking")) return "Booking Request";
+  return "General Training Enquiry";
+}
+
+async function getMiaCommunicationSettings(supabase) {
+  const { data, error } = await supabase.from("mia_communication_settings").select(miaCommunicationSettingsSelect).eq("setting_key", "mia_communication_automation").maybeSingle();
+  if (error) throw error;
+  return data || {
+    setting_key: "mia_communication_automation",
+    approval_level: 1,
+    trust_threshold: 85,
+    confidence_threshold: 90,
+    automation_enabled: false,
+    approved_categories: [],
+    paused: false
+  };
+}
+
+async function ensureMiaTrustProfile(supabase, communicationType) {
+  const type = String(communicationType || "General Training Enquiry");
+  const { data: existing, error: findError } = await supabase.from("mia_communication_trust_profiles").select(miaCommunicationTrustSelect).eq("communication_type", type).maybeSingle();
+  if (findError) throw findError;
+  if (existing) return existing;
+  const { data, error } = await supabase.from("mia_communication_trust_profiles").insert({ communication_type: type }).select(miaCommunicationTrustSelect).single();
+  if (error) throw error;
+  return data;
+}
+
+function evaluateMiaAutomation(settings = {}, profile = {}, context = {}) {
+  const communicationType = String(context.communication_type || profile.communication_type || "General Training Enquiry");
+  if (miaRestrictedCommunicationTypes.includes(communicationType)) return { eligible: false, reason: `${communicationType} always requires Marvin review.` };
+  if (context.flagged) return { eligible: false, reason: "The contact or organisation is flagged for review." };
+  if (Number(settings.approval_level || 1) < 3) return { eligible: false, reason: "Mia is operating below Level 3. Draft review is required." };
+  if (!settings.automation_enabled || settings.paused) return { eligible: false, reason: settings.paused ? "Mia automation is paused." : "Mia auto-send is disabled." };
+  if (!Array.isArray(settings.approved_categories) || !settings.approved_categories.includes(communicationType)) return { eligible: false, reason: "This communication category is not approved for automation." };
+  if (Number(profile.trust_percentage || 0) < Number(settings.trust_threshold || 85)) return { eligible: false, reason: "Trust score is below the configured threshold." };
+  if (Number(context.confidence_score || 0) < Number(settings.confidence_threshold || 90)) return { eligible: false, reason: "Draft confidence is below the configured threshold." };
+  return { eligible: true, reason: "Eligible under the configured trusted communication rules." };
+}
+
+async function recordMiaDraftMemory(supabase, { opportunity, responseDraft, email, communicationType, profile, confidenceScore, similarityScore, similarApprovedReplies, eligibility }) {
+  const row = {
+    opportunity_id: opportunity.id,
+    response_draft_id: responseDraft.id,
+    email_triage_id: email?.id || null,
+    contact_id: opportunity.contact_id || null,
+    organisation_id: opportunity.organisation_id || null,
+    communication_type: communicationType,
+    opportunity_stage: opportunity.stage,
+    enquiry_type: email?.category || communicationType,
+    email_category: email?.category || null,
+    response_template_used: "Mia opportunity review draft",
+    draft_subject: responseDraft.draft_subject,
+    draft_body: responseDraft.draft_body,
+    approval_outcome: "draft",
+    confidence_score: confidenceScore,
+    similarity_score: similarityScore,
+    trust_score: Number(profile.trust_percentage || 0),
+    metadata: { similar_approved_replies: similarApprovedReplies, automation_eligible: eligibility.eligible, eligibility_reason: eligibility.reason }
+  };
+  const { error } = await supabase.from("mia_communication_memory").insert(row);
+  if (error) throw error;
+}
+
+async function updateMiaTrustFromDecision(supabase, communicationType, decision, wasEdited = false) {
+  const profile = await ensureMiaTrustProfile(supabase, communicationType);
+  const updates = {
+    approvals: Number(profile.approvals || 0),
+    overrides: Number(profile.overrides || 0),
+    edits: Number(profile.edits || 0),
+    rejections: Number(profile.rejections || 0),
+    successful_outcomes: Number(profile.successful_outcomes || 0),
+    sent_count: Number(profile.sent_count || 0),
+    last_reviewed_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+  if (decision === "approved") updates.approvals += 1;
+  if (decision === "rejected") updates.rejections += 1;
+  if (decision === "edited" || wasEdited) updates.edits += 1;
+  updates.trust_percentage = calculateMiaTrust(updates);
+  const { error } = await supabase.from("mia_communication_trust_profiles").update(updates).eq("id", profile.id);
+  if (error) throw error;
+}
+
+async function getMiaCommunicationDashboard(supabase) {
+  const [settings, profilesResult, memoryResult, sequencesResult, stepsResult, draftsResult] = await Promise.all([
+    getMiaCommunicationSettings(supabase),
+    supabase.from("mia_communication_trust_profiles").select(miaCommunicationTrustSelect).order("trust_percentage", { ascending: false }).limit(100),
+    supabase.from("mia_communication_memory").select(miaCommunicationMemorySelect).order("created_at", { ascending: false }).limit(300),
+    supabase.from("mia_follow_up_sequences").select(miaFollowUpSequenceSelect).order("created_at", { ascending: false }).limit(150),
+    supabase.from("mia_follow_up_sequence_steps").select(miaFollowUpSequenceStepSelect).order("scheduled_for", { ascending: true }).limit(500),
+    supabase.from("opportunity_response_drafts").select(opportunityResponseDraftSelect).order("created_at", { ascending: false }).limit(300)
+  ]);
+  const error = profilesResult.error || memoryResult.error || sequencesResult.error || stepsResult.error || draftsResult.error;
+  if (error) throw error;
+  const memory = memoryResult.data || [];
+  const drafts = draftsResult.data || [];
+  return {
+    success: true,
+    settings,
+    profiles: profilesResult.data || [],
+    memory,
+    sequences: sequencesResult.data || [],
+    sequence_steps: stepsResult.data || [],
+    drafts,
+    metrics: {
+      drafts_awaiting_approval: drafts.filter((item) => ["draft", "edited"].includes(item.status)).length,
+      communications_auto_sent: memory.filter((item) => item.approval_outcome === "sent").length,
+      communications_paused: (sequencesResult.data || []).filter((item) => item.status === "paused").length,
+      automation_candidates: drafts.filter((item) => item.automation_eligible).length,
+      approval_rate: memory.length ? Math.round((memory.filter((item) => item.approval_outcome === "approved").length / memory.length) * 100) : 0
+    }
+  };
+}
+
+async function saveMiaCommunicationSettings(supabase, payload) {
+  const row = {
+    setting_key: "mia_communication_automation",
+    approval_level: Math.max(1, Math.min(4, Number(payload?.approval_level || 1))),
+    trust_threshold: clampPercentage(payload?.trust_threshold ?? 85),
+    confidence_threshold: clampPercentage(payload?.confidence_threshold ?? 90),
+    automation_enabled: Boolean(payload?.automation_enabled),
+    approved_categories: Array.isArray(payload?.approved_categories) ? payload.approved_categories.map(String) : [],
+    paused: Boolean(payload?.paused),
+    updated_at: new Date().toISOString()
+  };
+  const { error } = await supabase.from("mia_communication_settings").upsert(row, { onConflict: "setting_key" });
+  if (error) throw error;
+  await insertEllisActivity(supabase, { action_type: "mia_communication_settings_updated", summary: `Mia communication automation settings updated to Level ${row.approval_level}.`, metadata: { ...row, approved_categories: row.approved_categories } });
+  return getMiaCommunicationDashboard(supabase);
+}
+
+async function createMiaFollowUpSequence(supabase, payload) {
+  const opportunityId = payload?.opportunity_id;
+  if (!opportunityId) throw new Error("Opportunity id is required.");
+  const { data: opportunity, error } = await supabase.from("opportunities").select(opportunitySelect).eq("id", opportunityId).single();
+  if (error) throw error;
+  const { data: existing, error: existingError } = await supabase.from("mia_follow_up_sequences").select(miaFollowUpSequenceSelect).eq("opportunity_id", opportunityId).in("status", ["scheduled", "active", "paused"]).maybeSingle();
+  if (existingError) throw existingError;
+  if (existing) return getMiaCommunicationDashboard(supabase);
+  const schedule = [
+    [0, "Initial outreach review"],
+    [7, "Follow-up #1 review"],
+    [21, "Follow-up #2 review"],
+    [45, "Final follow-up review"]
+  ];
+  const { data: sequence, error: sequenceError } = await supabase.from("mia_follow_up_sequences").insert({
+    opportunity_id: opportunity.id,
+    prospect_id: opportunity.prospect_id || null,
+    communication_type: "Follow-Up Reminder",
+    status: "scheduled",
+    next_scheduled_for: new Date().toISOString(),
+    metadata: { review_first: true, stop_conditions: ["reply received", "quote requested", "booking requested", "not interested", "do not contact"] }
+  }).select(miaFollowUpSequenceSelect).single();
+  if (sequenceError) throw sequenceError;
+  const { error: stepsError } = await supabase.from("mia_follow_up_sequence_steps").insert(schedule.map(([days, label], index) => ({
+    sequence_id: sequence.id,
+    step_number: index,
+    step_label: label,
+    scheduled_for: new Date(Date.now() + days * 86400000).toISOString(),
+    status: "scheduled",
+    metadata: { review_first: true, days_after_start: days }
+  })));
+  if (stepsError) throw stepsError;
+  await insertEllisActivity(supabase, { action_type: "mia_follow_up_sequence_created", summary: "Mia follow-up review sequence created. No emails were sent.", metadata: { opportunity_id: opportunity.id, sequence_id: sequence.id } });
+  return getMiaCommunicationDashboard(supabase);
+}
+
+async function updateMiaFollowUpSequence(supabase, payload) {
+  if (!payload?.id) throw new Error("Sequence id is required.");
+  const status = ["scheduled", "active", "paused", "stopped", "completed"].includes(payload.status) ? payload.status : "paused";
+  const { error } = await supabase.from("mia_follow_up_sequences").update({ status, stop_reason: String(payload.stop_reason || "").trim() || null, updated_at: new Date().toISOString() }).eq("id", payload.id);
+  if (error) throw error;
+  if (["paused", "stopped"].includes(status)) await supabase.from("mia_follow_up_sequence_steps").update({ status: status === "paused" ? "paused" : "cancelled", updated_at: new Date().toISOString() }).eq("sequence_id", payload.id).in("status", ["scheduled", "ready_for_review"]);
+  await insertEllisActivity(supabase, { action_type: "mia_follow_up_sequence_updated", summary: `Mia follow-up sequence marked ${status}.`, metadata: { sequence_id: payload.id, status } });
+  return getMiaCommunicationDashboard(supabase);
+}
+
+async function processMiaEligibleCommunications(supabase) {
+  const settings = await getMiaCommunicationSettings(supabase);
+  if (!settings.automation_enabled || settings.paused || Number(settings.approval_level || 1) < 3) {
+    throw new Error("Mia trusted sending is not active. Enable Level 3 or Level 4 explicitly before processing eligible communications.");
+  }
+  const { data: drafts, error: draftsError } = await supabase
+    .from("opportunity_response_drafts")
+    .select(opportunityResponseDraftSelect)
+    .eq("automation_eligible", true)
+    .eq("status", "approved")
+    .order("created_at", { ascending: true })
+    .limit(20);
+  if (draftsError) throw draftsError;
+  let sent = 0;
+  let skipped = 0;
+  let failed = 0;
+  for (const draft of drafts || []) {
+    if (miaRestrictedCommunicationTypes.includes(draft.communication_type)) {
+      skipped += 1;
+      continue;
+    }
+    const { data: opportunity, error: opportunityError } = await supabase.from("opportunities").select(opportunitySelect).eq("id", draft.opportunity_id).single();
+    if (opportunityError) {
+      failed += 1;
+      continue;
+    }
+    const { data: prospect, error: prospectError } = opportunity.prospect_id ? await supabase.from("prospects").select("id, contact_email, do_not_contact").eq("id", opportunity.prospect_id).maybeSingle() : { data: null, error: null };
+    if (prospectError || prospect?.do_not_contact) {
+      skipped += 1;
+      continue;
+    }
+    const { data: email, error: emailError } = draft.email_triage_id ? await supabase.from("email_triage").select("id, sender_email").eq("id", draft.email_triage_id).maybeSingle() : { data: null, error: null };
+    if (emailError) {
+      failed += 1;
+      continue;
+    }
+    const recipient = String(email?.sender_email || prospect?.contact_email || "").trim();
+    if (!recipient) {
+      skipped += 1;
+      continue;
+    }
+    const profile = await ensureMiaTrustProfile(supabase, draft.communication_type);
+    const eligibility = evaluateMiaAutomation(settings, profile, { communication_type: draft.communication_type, confidence_score: draft.confidence_score, flagged: false });
+    if (!eligibility.eligible) {
+      skipped += 1;
+      continue;
+    }
+    try {
+      const providerResponse = await sendAgentEmail({
+        to: recipient,
+        subject: draft.draft_subject,
+        html: String(draft.draft_body || "").replace(/\n/g, "<br />")
+      });
+      await supabase.from("opportunity_response_drafts").update({ status: "sent", updated_at: new Date().toISOString() }).eq("id", draft.id);
+      await supabase.from("mia_communication_memory").update({ approval_outcome: "sent", final_subject: draft.draft_subject, final_body: draft.draft_body, updated_at: new Date().toISOString(), metadata: { provider_response: providerResponse, trusted_send: true } }).eq("response_draft_id", draft.id);
+      await supabase.from("mia_communication_trust_profiles").update({ sent_count: Number(profile.sent_count || 0) + 1, updated_at: new Date().toISOString() }).eq("id", profile.id);
+      await supabase.from("opportunities").update({ last_contact_date: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", opportunity.id);
+      await supabase.from("mia_follow_up_sequence_steps").update({ status: "sent", updated_at: new Date().toISOString() }).eq("response_draft_id", draft.id);
+      await insertEllisActivity(supabase, { action_type: "mia_trusted_communication_sent", summary: `Mia sent an approved trusted ${draft.communication_type} communication.`, metadata: { response_draft_id: draft.id, opportunity_id: opportunity.id, recipient, trusted_send: true } });
+      sent += 1;
+    } catch (error) {
+      await insertEllisActivity(supabase, { action_type: "mia_trusted_communication_failed", summary: "Mia could not send an approved trusted communication.", metadata: { response_draft_id: draft.id, opportunity_id: opportunity.id, error: error.message || "Send failed" } });
+      failed += 1;
+    }
+  }
+  return { ...(await getMiaCommunicationDashboard(supabase)), processing_summary: { found: (drafts || []).length, sent, skipped, failed } };
+}
+
 async function findOpportunityForEmail(supabase, email, opportunities, contacts, prospects) {
   const sender = String(email.sender_email || "").trim().toLowerCase();
   const contact = contacts.find((item) => String(item.email_address || "").trim().toLowerCase() === sender);
@@ -1251,7 +1532,14 @@ async function createOpportunityMiaDraft(supabase, payload) {
   if (emailError) throw emailError;
   const analysis = link?.analysis_metadata || analyseOpportunityReply(email || {});
   const draft = buildOpportunityDraft(payload, email || {}, analysis);
-  const { error: draftError } = await supabase.from("opportunity_response_drafts").insert({
+  const communicationType = inferMiaCommunicationType(email || {}, analysis);
+  const profile = await ensureMiaTrustProfile(supabase, communicationType);
+  const settings = await getMiaCommunicationSettings(supabase);
+  const confidenceScore = clampPercentage(opportunity.confidence || email?.confidence_score || 60);
+  const similarApprovedReplies = Number(profile.approvals || 0);
+  const similarityScore = clampPercentage(Math.min(100, 45 + similarApprovedReplies * 5));
+  const eligibility = evaluateMiaAutomation(settings, profile, { communication_type: communicationType, confidence_score: confidenceScore, flagged: false });
+  const { data: responseDraft, error: draftError } = await supabase.from("opportunity_response_drafts").insert({
     opportunity_id: opportunityId,
     email_triage_id: link?.email_triage_id || null,
     agent_name: "Mia",
@@ -1259,21 +1547,48 @@ async function createOpportunityMiaDraft(supabase, payload) {
     draft_body: draft.body,
     suggested_stage: analysis.suggested_stage || opportunity.stage,
     suggested_follow_up_date: opportunityDateAfter(analysis.due_days ?? 7),
+    communication_type: communicationType,
+    confidence_score: confidenceScore,
+    similarity_score: similarityScore,
+    trust_score: Number(profile.trust_percentage || 0),
+    similar_approved_replies: similarApprovedReplies,
+    automation_eligible: eligibility.eligible,
+    eligibility_reason: eligibility.reason,
     status: "draft"
-  });
+  }).select(opportunityResponseDraftSelect).single();
   if (draftError) throw draftError;
-  await insertEllisActivity(supabase, { action_type: "mia_opportunity_draft_created", summary: "Mia prepared an opportunity response draft for review.", metadata: { opportunity_id: opportunityId } });
+  await recordMiaDraftMemory(supabase, { opportunity, responseDraft, email, communicationType, profile, confidenceScore, similarityScore, similarApprovedReplies, eligibility });
+  await insertEllisActivity(supabase, { action_type: "mia_opportunity_draft_created", summary: "Mia prepared an opportunity response draft for review.", metadata: { opportunity_id: opportunityId, communication_type: communicationType, confidence_score: confidenceScore, similarity_score: similarityScore, trust_score: Number(profile.trust_percentage || 0), automation_eligible: eligibility.eligible } });
   return getOpportunityManagement(supabase);
 }
 
 async function updateOpportunityDraft(supabase, payload) {
   if (!payload?.id) throw new Error("Draft id is required.");
+  const { data: previous, error: previousError } = await supabase.from("opportunity_response_drafts").select(opportunityResponseDraftSelect).eq("id", payload.id).single();
+  if (previousError) throw previousError;
   const updates = { updated_at: new Date().toISOString() };
   if (Object.prototype.hasOwnProperty.call(payload, "draft_subject")) updates.draft_subject = String(payload.draft_subject || "").trim();
   if (Object.prototype.hasOwnProperty.call(payload, "draft_body")) updates.draft_body = String(payload.draft_body || "").trim();
   if (payload.status && ["draft", "approved", "edited", "rejected"].includes(payload.status)) updates.status = payload.status;
-  const { error } = await supabase.from("opportunity_response_drafts").update(updates).eq("id", payload.id);
+  const contentEdited = (Object.prototype.hasOwnProperty.call(updates, "draft_subject") && updates.draft_subject !== previous.draft_subject)
+    || (Object.prototype.hasOwnProperty.call(updates, "draft_body") && updates.draft_body !== previous.draft_body);
+  if (contentEdited && !payload.status) updates.status = "edited";
+  const { data, error } = await supabase.from("opportunity_response_drafts").update(updates).eq("id", payload.id).select(opportunityResponseDraftSelect).single();
   if (error) throw error;
+  const decisionChanged = data.status !== previous.status;
+  if (decisionChanged || contentEdited) {
+    const decision = contentEdited && data.status !== "approved" && data.status !== "rejected" ? "edited" : data.status;
+    await updateMiaTrustFromDecision(supabase, data.communication_type || "General Training Enquiry", decision, contentEdited);
+    const { error: memoryError } = await supabase.from("mia_communication_memory").update({
+      final_subject: data.draft_subject,
+      final_body: data.draft_body,
+      approval_outcome: ["approved", "edited", "rejected"].includes(decision) ? decision : "draft",
+      updated_at: new Date().toISOString(),
+      metadata: { decision, content_edited: contentEdited }
+    }).eq("response_draft_id", data.id);
+    if (memoryError) throw memoryError;
+    await insertEllisActivity(supabase, { action_type: `mia_draft_${decision}`, summary: `Mia ${data.communication_type || "communication"} draft marked ${decision}.`, metadata: { response_draft_id: data.id, communication_type: data.communication_type, content_edited: contentEdited } });
+  }
   return getOpportunityManagement(supabase);
 }
 
@@ -4292,6 +4607,11 @@ export default async function handler(req, res) {
       "create-opportunity-follow-up": createOpportunityFollowUp,
       "create-opportunity-mia-draft": createOpportunityMiaDraft,
       "update-opportunity-draft": updateOpportunityDraft,
+      "get-mia-communication-dashboard": getMiaCommunicationDashboard,
+      "save-mia-communication-settings": saveMiaCommunicationSettings,
+      "create-mia-follow-up-sequence": createMiaFollowUpSequence,
+      "update-mia-follow-up-sequence": updateMiaFollowUpSequence,
+      "process-mia-eligible-communications": processMiaEligibleCommunications,
       "save-reply-intake": saveReplyIntake,
       "update-reply-approval": updateReplyApproval,
       "send-theo-approved-response": sendTheoApprovedResponse,
