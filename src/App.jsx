@@ -130,6 +130,10 @@ function safeText(value, fallback = "Not logged") {
   }
 }
 
+function formatGbp(value) {
+  return `\u00A3${Number(value || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 function ExecutiveMetricCard({ label, value, tone = "slate" }) {
   const tones = {
     slate: "border-slate-200 bg-slate-50 text-slate-950",
@@ -1041,9 +1045,10 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const [ellisCategoryFilter, setEllisCategoryFilter] = useState("");
   const [ellisPriorityFilter, setEllisPriorityFilter] = useState("");
   const [ellisEmailForm, setEllisEmailForm] = useState({ sender_name: "", sender_email: "", subject: "", received_at: "", raw_excerpt: "" });
-  const [opportunityData, setOpportunityData] = useState({ opportunities: [], email_links: [], drafts: [], tasks: [], metrics: {}, insights: [], stages: [] });
+  const [opportunityData, setOpportunityData] = useState({ opportunities: [], quotes: [], email_links: [], drafts: [], tasks: [], metrics: {}, insights: [], revenue_intelligence: {}, stages: [], service_types: [] });
   const [opportunityBusy, setOpportunityBusy] = useState("");
-  const [executiveDashboard, setExecutiveDashboard] = useState({ executive_summary: {}, rory_summary: {}, mia_summary: {}, ellis_summary: {}, theo_summary: {}, urgent_actions: [], morning_briefing: { priorities: [] }, generated_at: "" });
+  const [opportunityQuoteForm, setOpportunityQuoteForm] = useState({ opportunity_id: "", quote_reference: "", quoted_value: "", quote_status: "Draft", sent_at: "", expires_at: "", follow_up_due: "", notes: "" });
+  const [executiveDashboard, setExecutiveDashboard] = useState({ executive_summary: {}, rory_summary: {}, mia_summary: {}, ellis_summary: {}, theo_summary: {}, revenue_intelligence: {}, urgent_actions: [], morning_briefing: { priorities: [] }, generated_at: "" });
   const [executiveDashboardBusy, setExecutiveDashboardBusy] = useState("");
   const [opportunityFilters, setOpportunityFilters] = useState({ stage: "", agent: "", status: "", hot: "" });
   const [miaCommunicationData, setMiaCommunicationData] = useState({ settings: {}, profiles: [], memory: [], sequences: [], sequence_steps: [], drafts: [], metrics: {} });
@@ -1243,10 +1248,13 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const ellisCrmMetrics = asObject(safeEllisCrm.metrics);
   const safeOpportunityData = asObject(opportunityData);
   const safeOpportunities = asArray(safeOpportunityData.opportunities).map((opportunity) => asObject(opportunity));
+  const safeOpportunityQuotes = asArray(safeOpportunityData.quotes).map((quote) => asObject(quote));
   const safeOpportunityDrafts = asArray(safeOpportunityData.drafts).map((draft) => asObject(draft));
   const safeOpportunityTasks = asArray(safeOpportunityData.tasks).map((task) => asObject(task));
   const opportunityMetrics = asObject(safeOpportunityData.metrics);
   const opportunityInsights = asArray(safeOpportunityData.insights);
+  const opportunityRevenue = asObject(safeOpportunityData.revenue_intelligence);
+  const opportunityServiceTypes = asArray(safeOpportunityData.service_types).length ? asArray(safeOpportunityData.service_types) : ["PATS", "PATS Accessible", "MiDAS", "MiDAS Refresher", "First Aid", "Compliance Support", "Mixed Opportunity"];
   const safeMiaCommunicationData = asObject(miaCommunicationData);
   const miaCommunicationSettings = asObject(safeMiaCommunicationData.settings);
   const miaCommunicationProfiles = asArray(safeMiaCommunicationData.profiles).map((profile) => asObject(profile));
@@ -2520,6 +2528,50 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     } catch (error) {
       console.error("Opportunity update error:", error);
       showMessage("error", "Could not update the opportunity.");
+    } finally {
+      setOpportunityBusy("");
+    }
+  }
+
+  async function saveOpportunityQuote(event) {
+    event.preventDefault();
+    if (!opportunityQuoteForm.opportunity_id) {
+      showMessage("error", "Select an opportunity before saving the quote.");
+      return;
+    }
+    setOpportunityBusy("quote");
+    try {
+      const { response, result } = await callAdminAction("save-opportunity-quote", opportunityQuoteForm);
+      if (!response.ok) {
+        console.error("Opportunity quote save error:", result);
+        showMessage("error", result.error || "Could not save the quote.");
+        return;
+      }
+      setOpportunityData(result);
+      setOpportunityQuoteForm({ opportunity_id: "", quote_reference: "", quoted_value: "", quote_status: "Draft", sent_at: "", expires_at: "", follow_up_due: "", notes: "" });
+      showMessage("success", "Quote tracking record saved.");
+    } catch (error) {
+      console.error("Opportunity quote save error:", error);
+      showMessage("error", "Could not save the quote.");
+    } finally {
+      setOpportunityBusy("");
+    }
+  }
+
+  async function updateOpportunityQuote(quote, updates) {
+    setOpportunityBusy(quote.id);
+    try {
+      const { response, result } = await callAdminAction("save-opportunity-quote", { ...quote, ...updates });
+      if (!response.ok) {
+        console.error("Opportunity quote update error:", result);
+        showMessage("error", result.error || "Could not update the quote.");
+        return;
+      }
+      setOpportunityData(result);
+      showMessage("success", "Quote tracking record updated.");
+    } catch (error) {
+      console.error("Opportunity quote update error:", error);
+      showMessage("error", "Could not update the quote.");
     } finally {
       setOpportunityBusy("");
     }
@@ -4406,6 +4458,16 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const executiveMia = executiveDashboard.mia_summary || {};
   const executiveEllis = executiveDashboard.ellis_summary || {};
   const executiveTheo = executiveDashboard.theo_summary || {};
+  const executiveRevenue = asObject(executiveDashboard.revenue_intelligence);
+  const executiveRevenueMetrics = asObject(executiveRevenue.metrics);
+  const executiveRevenueStages = asArray(executiveRevenue.pipeline_by_stage).map((item) => asObject(item));
+  const executiveRevenueServices = asArray(executiveRevenue.revenue_by_service).map((item) => asObject(item));
+  const executiveRevenueForecast = asArray(executiveRevenue.forecast_by_month).map((item) => asObject(item));
+  const executiveRevenueTop = asArray(executiveRevenue.top_revenue_opportunities).map((item) => asObject(item));
+  const executiveRevenueQuotes = asArray(executiveRevenue.quotes_awaiting_follow_up).map((item) => asObject(item));
+  const executiveRevenueReviews = asArray(executiveRevenue.opportunities_needing_value_review).map((item) => asObject(item));
+  const executiveRevenueAlerts = asArray(executiveRevenue.alerts);
+  const executiveRevenueInsights = asArray(executiveRevenue.insights);
   const executiveUrgentActions = Array.isArray(executiveDashboard.urgent_actions) ? executiveDashboard.urgent_actions : [];
   const executiveBriefing = executiveDashboard.morning_briefing || {};
 
@@ -4486,8 +4548,46 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                     <ExecutiveMetricCard label="New Replies Today" value={Number(executiveSummary.new_replies_today || 0)} tone="emerald" />
                     <ExecutiveMetricCard label="Bookings Awaiting Action" value={Number(executiveSummary.bookings_awaiting_action || 0)} tone="violet" />
                     <ExecutiveMetricCard label="Urgent Alerts" value={Number(executiveSummary.urgent_alerts || 0)} tone="red" />
-                    <ExecutiveMetricCard label="Estimated Pipeline Value" value={`£${Number(executiveSummary.estimated_pipeline_value || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} tone="emerald" />
+                    <ExecutiveMetricCard label="Estimated Pipeline Value" value={formatGbp(executiveSummary.estimated_pipeline_value)} tone="emerald" />
                   </div>
+
+                  <section className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+                    <p className="text-xs font-black uppercase tracking-wide text-emerald-700">Revenue Intelligence</p>
+                    <h3 className="mt-2 text-xl font-black">Pipeline Forecasting</h3>
+                    <p className="mt-1 text-sm font-semibold text-slate-600">Expected revenue uses each opportunity value and its stage probability. Opportunities without a reviewed value stay visible for attention.</p>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      <ExecutiveMetricCard label="Total Pipeline Value" value={formatGbp(executiveRevenueMetrics.total_pipeline_value)} tone="emerald" />
+                      <ExecutiveMetricCard label="Hot Opportunity Value" value={formatGbp(executiveRevenueMetrics.hot_opportunity_value)} tone="red" />
+                      <ExecutiveMetricCard label="Quotes Sent Value" value={formatGbp(executiveRevenueMetrics.quotes_sent_value)} tone="blue" />
+                      <ExecutiveMetricCard label="Quotes Awaiting Response" value={Number(executiveRevenueMetrics.quotes_awaiting_response || 0)} tone="amber" />
+                      <ExecutiveMetricCard label="Expected 30-Day Revenue" value={formatGbp(executiveRevenueMetrics.expected_30_day_revenue)} tone="emerald" />
+                      <ExecutiveMetricCard label="Expected 60-Day Revenue" value={formatGbp(executiveRevenueMetrics.expected_60_day_revenue)} tone="emerald" />
+                      <ExecutiveMetricCard label="Expected 90-Day Revenue" value={formatGbp(executiveRevenueMetrics.expected_90_day_revenue)} tone="emerald" />
+                      <ExecutiveMetricCard label="Won Revenue" value={formatGbp(executiveRevenueMetrics.won_revenue)} tone="blue" />
+                      <ExecutiveMetricCard label="Lost Opportunity Value" value={formatGbp(executiveRevenueMetrics.lost_opportunity_value)} tone="slate" />
+                    </div>
+                    <div className="mt-4 grid gap-4 xl:grid-cols-3">
+                      <ExecutiveSummaryPanel title="Pipeline by Stage" tone="blue" items={executiveRevenueStages.length ? executiveRevenueStages.map((item) => ({ label: `${safeText(item.stage, "Stage")} (${Number(item.count || 0)})`, value: formatGbp(item.expected_value) })) : [{ label: "No valued stages yet", value: formatGbp(0) }]} />
+                      <ExecutiveSummaryPanel title="Revenue by Service Type" tone="emerald" items={executiveRevenueServices.length ? executiveRevenueServices.map((item) => ({ label: `${safeText(item.service_type, "Mixed Opportunity")} (${Number(item.count || 0)})`, value: formatGbp(item.estimated_value) })) : [{ label: "No service values yet", value: formatGbp(0) }]} />
+                      <ExecutiveSummaryPanel title="Forecast by Month" tone="violet" items={executiveRevenueForecast.length ? executiveRevenueForecast.map((item) => ({ label: safeText(item.month, "Month"), value: formatGbp(item.expected_value) })) : [{ label: "No forecast dates yet", value: formatGbp(0) }]} />
+                    </div>
+                    <div className="mt-4 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+                      <div className="rounded-xl border border-slate-200 bg-white p-4">
+                        <h4 className="font-black">Top Revenue Opportunities</h4>
+                        <div className="mt-3 overflow-x-auto">
+                          <table className="min-w-[760px] w-full text-left text-xs">
+                            <thead><tr className="border-b border-slate-200 uppercase text-slate-500"><th className="p-2">Organisation</th><th className="p-2">Service</th><th className="p-2">Stage</th><th className="p-2">Estimated</th><th className="p-2">Expected</th><th className="p-2">Probability</th><th className="p-2">Next action</th></tr></thead>
+                            <tbody>{executiveRevenueTop.length ? executiveRevenueTop.map((item) => <tr key={item.id} className="border-b border-slate-100"><td className="p-2 font-black">{safeText(item.organisation_name, "Unlinked opportunity")}</td><td className="p-2">{safeText(item.service_type, "Needs review")}</td><td className="p-2">{safeText(item.stage, "Prospect Found")}</td><td className="p-2">{formatGbp(item.estimated_value)}</td><td className="p-2 font-black text-emerald-700">{formatGbp(item.expected_value)}</td><td className="p-2">{Number(item.probability || 0)}%</td><td className="p-2">{safeText(item.next_action, "Review opportunity")}</td></tr>) : <tr><td colSpan="7" className="p-3 font-bold text-slate-500">No valued opportunities yet.</td></tr>}</tbody>
+                          </table>
+                        </div>
+                      </div>
+                      <div className="grid gap-4">
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><h4 className="font-black text-amber-950">Revenue Alerts</h4><div className="mt-3 grid gap-2">{executiveRevenueAlerts.length ? executiveRevenueAlerts.map((item) => <p key={item} className="rounded-lg bg-white p-3 text-xs font-bold text-amber-900">{item}</p>) : <p className="text-xs font-bold text-amber-900">No revenue alerts are waiting.</p>}</div></div>
+                        <div className="rounded-xl border border-slate-200 bg-white p-4"><h4 className="font-black">Ellis Revenue Insights</h4><div className="mt-3 grid gap-2">{executiveRevenueInsights.length ? executiveRevenueInsights.map((item) => <p key={item} className="text-xs font-bold text-slate-600">{item}</p>) : <p className="text-xs font-bold text-slate-500">No revenue insights yet.</p>}</div></div>
+                        <div className="rounded-xl border border-slate-200 bg-white p-4"><h4 className="font-black">Needs Value Review</h4><p className="mt-2 text-2xl font-black text-red-700">{executiveRevenueReviews.length}</p><p className="mt-1 text-xs font-bold text-slate-500">Active opportunities requiring a human estimate.</p></div>
+                      </div>
+                    </div>
+                  </section>
 
                   <div className="mt-6 grid gap-4 xl:grid-cols-[1fr_1.1fr]">
                     <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -5838,6 +5938,30 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                     </div>
                   </section>
 
+                  <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div>
+                      <h3 className="text-xl font-black">Quote Tracking</h3>
+                      <p className="mt-1 text-sm font-semibold text-slate-600">Record quote values and review dates without changing email automation. Accepted quotes update the linked won value.</p>
+                    </div>
+                    <form onSubmit={saveOpportunityQuote} className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                      <select value={opportunityQuoteForm.opportunity_id} onChange={(event) => setOpportunityQuoteForm((current) => ({ ...current, opportunity_id: event.target.value }))} className="rounded-xl border border-slate-200 p-3 text-sm" required><option value="">Select opportunity</option>{safeOpportunities.filter((item) => item.status !== "dormant").map((item) => <option key={item.id} value={item.id}>{safeText(item.organisation_name, item.id)}</option>)}</select>
+                      <input value={opportunityQuoteForm.quote_reference} onChange={(event) => setOpportunityQuoteForm((current) => ({ ...current, quote_reference: event.target.value }))} className="rounded-xl border border-slate-200 p-3 text-sm" placeholder="Quote reference (optional)" />
+                      <label className="flex min-w-0 items-center rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-700"><span className="border-r border-slate-200 px-3 py-3">{"\u00A3"}</span><input type="number" min="0" step="0.01" value={opportunityQuoteForm.quoted_value} onChange={(event) => setOpportunityQuoteForm((current) => ({ ...current, quoted_value: event.target.value }))} className="min-w-0 flex-1 rounded-r-xl p-3 outline-none" placeholder="Quoted value" required /></label>
+                      <select value={opportunityQuoteForm.quote_status} onChange={(event) => setOpportunityQuoteForm((current) => ({ ...current, quote_status: event.target.value }))} className="rounded-xl border border-slate-200 p-3 text-sm">{["Draft", "Sent", "Awaiting Response", "Accepted", "Rejected", "Expired"].map((status) => <option key={status}>{status}</option>)}</select>
+                      <label className="grid gap-1 text-xs font-bold text-slate-500">Sent date<input type="date" value={opportunityQuoteForm.sent_at} onChange={(event) => setOpportunityQuoteForm((current) => ({ ...current, sent_at: event.target.value }))} className="rounded-xl border border-slate-200 p-3 text-sm text-slate-700" /></label>
+                      <label className="grid gap-1 text-xs font-bold text-slate-500">Expires<input type="date" value={opportunityQuoteForm.expires_at} onChange={(event) => setOpportunityQuoteForm((current) => ({ ...current, expires_at: event.target.value }))} className="rounded-xl border border-slate-200 p-3 text-sm text-slate-700" /></label>
+                      <label className="grid gap-1 text-xs font-bold text-slate-500">Follow-up due<input type="date" value={opportunityQuoteForm.follow_up_due} onChange={(event) => setOpportunityQuoteForm((current) => ({ ...current, follow_up_due: event.target.value }))} className="rounded-xl border border-slate-200 p-3 text-sm text-slate-700" /></label>
+                      <input value={opportunityQuoteForm.notes} onChange={(event) => setOpportunityQuoteForm((current) => ({ ...current, notes: event.target.value }))} className="rounded-xl border border-slate-200 p-3 text-sm" placeholder="Quote notes" />
+                      <button type="submit" disabled={opportunityBusy === "quote"} className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-black text-white disabled:opacity-60">{opportunityBusy === "quote" ? "Saving quote..." : "Save Quote Record"}</button>
+                    </form>
+                    <div className="mt-5 overflow-x-auto">
+                      <table className="min-w-[760px] w-full text-left text-sm">
+                        <thead><tr className="border-b border-slate-200 text-xs uppercase text-slate-500"><th className="p-3">Reference</th><th className="p-3">Organisation</th><th className="p-3">Value</th><th className="p-3">Status</th><th className="p-3">Sent</th><th className="p-3">Follow-up</th></tr></thead>
+                        <tbody>{safeOpportunityQuotes.length ? safeOpportunityQuotes.map((quote) => { const opportunity = safeOpportunities.find((item) => item.id === quote.opportunity_id) || {}; return <tr key={quote.id} className="border-b border-slate-100"><td className="p-3 font-black">{safeText(quote.quote_reference, "Quote")}</td><td className="p-3">{safeText(opportunity.organisation_name, "Unlinked opportunity")}</td><td className="p-3">{formatGbp(quote.quoted_value)}</td><td className="p-3"><select value={quote.quote_status || "Draft"} onChange={(event) => updateOpportunityQuote(quote, { quote_status: event.target.value })} disabled={opportunityBusy === quote.id} className="rounded-lg border border-slate-200 bg-white p-2 text-xs font-bold disabled:opacity-60">{["Draft", "Sent", "Awaiting Response", "Accepted", "Rejected", "Expired"].map((status) => <option key={status}>{status}</option>)}</select></td><td className="p-3">{quote.sent_at ? formatDisplayDate(quote.sent_at) : "Not sent"}</td><td className="p-3">{quote.follow_up_due ? formatDisplayDate(quote.follow_up_due) : "Not scheduled"}</td></tr>; }) : <tr><td colSpan="6" className="p-4 text-sm font-bold text-slate-600">No quote records yet.</td></tr>}</tbody>
+                      </table>
+                    </div>
+                  </section>
+
                   <section className="mt-6 grid gap-6 lg:grid-cols-2">
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                       <h3 className="text-xl font-black">Inbox Connection Readiness</h3>
@@ -5899,7 +6023,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                       ["Hot", opportunityMetrics.hot || 0, "bg-red-50 text-red-800"],
                       ["Follow-ups due", opportunityMetrics.follow_ups_due || 0, "bg-amber-50 text-amber-800"],
                       ["Quotes awaiting response", opportunityMetrics.quote_requested || 0, "bg-blue-50 text-blue-800"],
-                      ["Pipeline value", `£${Number(opportunityMetrics.estimated_pipeline_value || 0).toFixed(2)}`, "bg-emerald-50 text-emerald-800"],
+                      ["Pipeline value", formatGbp(opportunityMetrics.estimated_pipeline_value), "bg-emerald-50 text-emerald-800"],
                       ["Wins", opportunityMetrics.recent_wins || 0, "bg-teal-50 text-teal-800"],
                       ["Losses", opportunityMetrics.recent_losses || 0, "bg-slate-100 text-slate-700"]
                     ].map(([label, value, style]) => <div key={label} className={`rounded-2xl border border-slate-200 p-4 ${style}`}><p className="text-xs font-black uppercase">{label}</p><p className="mt-2 text-2xl font-black">{value}</p></div>)}
@@ -5933,17 +6057,22 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                               <span className="rounded-full bg-slate-950 px-3 py-1 text-xs font-black text-white">{safeText(opportunity.stage, "Prospect Found")}</span>
                               <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-700">{safeText(opportunity.assigned_agent, "Mia")}</span>
                               {opportunity.is_hot ? <span className="rounded-full bg-red-200 px-3 py-1 text-xs font-black text-red-900">HOT</span> : null}
+                              {opportunity.value_review_required || Number(opportunity.estimated_value || 0) <= 0 ? <span className="rounded-full bg-amber-200 px-3 py-1 text-xs font-black text-amber-900">Needs Value Review</span> : null}
                             </div>
                             <h4 className="mt-3 text-lg font-black">{safeText(opportunity.organisation_name, "Unlinked opportunity")}</h4>
                             <p className="mt-1 text-sm font-semibold text-slate-600">{safeText(opportunity.contact_name || opportunity.contact_email, "Contact not linked")}</p>
                             <p className="mt-3 text-sm font-semibold text-slate-700">Next action: {safeText(opportunity.next_action, "Review opportunity")}</p>
-                            <p className="mt-1 text-xs font-bold text-slate-500">Due: {opportunity.next_action_due ? formatDisplayDate(opportunity.next_action_due) : "Not scheduled"} | Value: {"\u00A3"}{Number(opportunity.estimated_value || 0).toFixed(2)} | Confidence: {Number(opportunity.confidence || 0)}%</p>
+                            <p className="mt-1 text-xs font-bold text-slate-500">Due: {opportunity.next_action_due ? formatDisplayDate(opportunity.next_action_due) : "Not scheduled"} | Estimated: {formatGbp(opportunity.estimated_value)} | Expected: {formatGbp(opportunity.expected_value)} | Probability: {Number(opportunity.probability || 0)}%</p>
                             {opportunity.hot_reason ? <p className="mt-2 text-xs font-black text-red-700">{opportunity.hot_reason}</p> : null}
                           </div>
-                          <div className="grid gap-2 sm:grid-cols-2 lg:w-[360px]">
+                          <div className="grid gap-2 sm:grid-cols-2 lg:w-[520px]">
                             <select value={opportunity.stage || "Prospect Found"} onChange={(event) => updateOpportunity(opportunity, { stage: event.target.value }, "Opportunity stage updated.")} disabled={opportunityBusy === opportunity.id} className="rounded-lg border border-slate-300 bg-white p-2 text-xs font-black disabled:opacity-60">{opportunityStageOptions.map((stage) => <option key={stage}>{stage}</option>)}</select>
                             <select value={opportunity.assigned_agent || "Mia"} onChange={(event) => updateOpportunity(opportunity, { assigned_agent: event.target.value }, "Opportunity owner updated.")} disabled={opportunityBusy === opportunity.id} className="rounded-lg border border-slate-300 bg-white p-2 text-xs font-black disabled:opacity-60">{ellisRouteOptions.map((agent) => <option key={agent}>{agent}</option>)}</select>
+                            <select value={opportunity.service_type || "Mixed Opportunity"} onChange={(event) => updateOpportunity(opportunity, { service_type: event.target.value }, "Opportunity service updated.")} disabled={opportunityBusy === opportunity.id} className="rounded-lg border border-slate-300 bg-white p-2 text-xs font-black disabled:opacity-60">{opportunityServiceTypes.map((service) => <option key={service}>{service}</option>)}</select>
+                            <input type="number" min="0" step="1" defaultValue={Number(opportunity.participant_count || 0)} onBlur={(event) => Number(event.target.value || 0) !== Number(opportunity.participant_count || 0) && updateOpportunity(opportunity, { participant_count: event.target.value }, "Participant count updated.")} disabled={opportunityBusy === opportunity.id} className="rounded-lg border border-slate-300 bg-white p-2 text-xs font-black disabled:opacity-60" aria-label={`Participants for ${safeText(opportunity.organisation_name, "opportunity")}`} placeholder="Participants" />
                             <label className="flex min-w-0 items-center rounded-lg border border-slate-300 bg-white text-xs font-black text-slate-700"><span className="border-r border-slate-200 px-3 py-2">{"\u00A3"}</span><input type="number" min="0" step="0.01" defaultValue={Number(opportunity.estimated_value || 0)} onBlur={(event) => Number(event.target.value || 0) !== Number(opportunity.estimated_value || 0) && updateOpportunity(opportunity, { estimated_value: event.target.value }, "Estimated opportunity value updated.")} disabled={opportunityBusy === opportunity.id} className="min-w-0 flex-1 rounded-r-lg bg-white p-2 text-xs font-black outline-none disabled:opacity-60" aria-label={`Estimated value for ${safeText(opportunity.organisation_name, "opportunity")}`} /></label>
+                            <label className="flex min-w-0 items-center rounded-lg border border-slate-300 bg-white text-xs font-black text-slate-700"><input type="number" min="0" max="100" step="1" defaultValue={Number(opportunity.probability || 0)} onBlur={(event) => Number(event.target.value || 0) !== Number(opportunity.probability || 0) && updateOpportunity(opportunity, { probability: event.target.value }, "Opportunity probability updated.")} disabled={opportunityBusy === opportunity.id} className="min-w-0 flex-1 rounded-l-lg bg-white p-2 text-xs font-black outline-none disabled:opacity-60" aria-label={`Probability for ${safeText(opportunity.organisation_name, "opportunity")}`} /><span className="border-l border-slate-200 px-3 py-2">%</span></label>
+                            <input type="date" defaultValue={opportunity.expected_close_date || ""} onBlur={(event) => event.target.value !== (opportunity.expected_close_date || "") && updateOpportunity(opportunity, { expected_close_date: event.target.value }, "Expected close date updated.")} disabled={opportunityBusy === opportunity.id} className="rounded-lg border border-slate-300 bg-white p-2 text-xs font-black disabled:opacity-60" aria-label={`Expected close date for ${safeText(opportunity.organisation_name, "opportunity")}`} />
                             <button type="button" onClick={() => createOpportunityFollowUp(opportunity)} disabled={opportunityBusy === opportunity.id} className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-black text-white disabled:opacity-60">Create Follow-Up Task</button>
                             <button type="button" onClick={() => createOpportunityMiaDraft(opportunity)} disabled={opportunityBusy === opportunity.id} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white sm:col-span-2 disabled:opacity-60">Prepare Mia Draft</button>
                             <button type="button" onClick={() => window.confirm("Archive this opportunity? It will leave the active pipeline but Rory's original prospect record will be kept.") && updateOpportunity(opportunity, { stage: "Dormant", status: "dormant" }, "Opportunity archived. Rory's prospect record has been kept.")} disabled={opportunityBusy === opportunity.id || opportunity.status === "dormant"} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700 sm:col-span-2 disabled:opacity-50">Archive Opportunity</button>
