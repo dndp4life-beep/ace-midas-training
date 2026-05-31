@@ -278,6 +278,20 @@ It summarises existing operational data without changing automation behaviour:
 
 The protected `/api/admin` action is `get-executive-dashboard`. It only reads existing operational tables and does not send email, update records, advance opportunity stages or create tasks.
 
+## Phase 8B Revenue Intelligence
+
+Phase 8B extends the existing Executive Command Centre with read-only pipeline forecasting. It does not change Mia sending, Ellis inbox automation, Rory prospecting or Theo booking behaviour.
+
+Revenue intelligence adds:
+
+- Opportunity service type, participant count, quoted value, actual value, probability, expected value, close likelihood and expected close date
+- Stage-based default probabilities with database-side expected-value calculation
+- Value-review flags for opportunities that still need a human estimate
+- `opportunity_quotes` for lightweight quote tracking
+- Revenue cards, pipeline-by-stage summaries, service summaries, monthly forecasts, top revenue opportunities, quote follow-up visibility and Ellis revenue insights
+
+The quote tracker is available from the existing Opportunity Pipeline tab. It stores quote records and updates won revenue when a quote is marked accepted. It does not send emails.
+
 ## Important Development Rules
 
 - Do not expose secret keys in frontend code.

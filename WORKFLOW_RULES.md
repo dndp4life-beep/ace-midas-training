@@ -343,6 +343,17 @@ Daily AI Summary should include:
 - The morning briefing is generated from current records when the dashboard loads.
 - Urgent actions remain review items for Marvin.
 
+## Phase 8B Revenue Intelligence Rules
+
+- Revenue intelligence extends the existing Executive Command Centre. It must not create a separate dashboard.
+- Expected opportunity value is calculated as `estimated_value x probability`.
+- Default stage probabilities are: Prospect Found 10%, Outreach Sent 15%, Contact Engaged 30%, Information Requested 40%, Quote Requested 55%, Quote Sent 65%, Follow-Up Due 60%, Negotiation 75%, Won 100%, Lost 0% and Dormant 5%.
+- Opportunities without a reviewed estimate must remain visible as `Needs Value Review`.
+- Website course pricing may seed a provisional estimate where the service and participant count are known. Range-based or unclear pricing still requires human review.
+- Quote tracking is internal and reviewable. It must never send emails, payment links or customer messages.
+- Accepted quotes may update won revenue for the linked opportunity.
+- Phase 8B must not alter Mia sending, Ellis inbox automation, Rory prospecting or Theo booking behaviour.
+
 ## Do Not Break Existing Workflows
 
 When editing the project, avoid breaking:
