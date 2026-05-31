@@ -293,6 +293,16 @@ Automation is allowed for:
 - Rory prospect matches may create internal urgent alerts and one cooldown-protected internal notification email.
 - Urgent alerts must not auto-reply, delete, archive, unsubscribe or expose secrets.
 
+## Ellis Phase 6 Opportunity Rules
+
+- Every Rory prospect may receive an opportunity pipeline record.
+- Known Rory prospect replies may advance an open opportunity to `Contact Engaged`, `Information Requested`, `Quote Requested`, or `Follow-Up Due`.
+- `Won`, `Lost`, and `Dormant` stages must remain deliberate admin decisions. Ellis must not close opportunities automatically.
+- Follow-up suggestions create internal queue tasks only. They must not auto-send emails.
+- Mia may prepare an assisted response draft for review. Draft approval does not send an email.
+- Complaints, legal matters, safeguarding concerns, invoice disputes and payment disputes route to Marvin for review.
+- Hot opportunities include recognised prospect replies, quote requests, meeting requests, and council or school enquiries.
+
 ## Daily AI Summary Expectations
 
 Daily AI Summary should include:

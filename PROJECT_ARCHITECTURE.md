@@ -224,6 +224,22 @@ For relevant inbox emails, Ellis creates a suggested delegation with a recommend
 
 Urgent Rory prospect alerts are created when a new inbox email matches a qualified Rory prospect by public contact email, organisation domain or organisation mention. Alerts are deduplicated by email and email notifications use a configurable prospect cooldown. Alerts are internal only.
 
+## Ellis Phase 6 Opportunity Management
+
+Ellis Phase 6 adds a review-first opportunity pipeline without automatic customer replies.
+
+Phase 6 uses:
+
+- `opportunities`
+- `opportunity_email_links`
+- `opportunity_response_drafts`
+- enriched `prospects.pipeline_stage`
+- enriched `agent_work_queue.linked_opportunity_id`
+
+Rory prospects receive opportunity records, known prospect replies can advance the pipeline, quote requests and engaged contacts are marked hot, and suggested follow-up work is placed in the existing agent queue. Mia may prepare response drafts for review. Approving a draft records an internal decision only: it does not send an email.
+
+Opportunity stages are `Prospect Found`, `Outreach Sent`, `Contact Engaged`, `Information Requested`, `Quote Requested`, `Quote Sent`, `Follow-Up Due`, `Negotiation`, `Won`, `Lost`, and `Dormant`.
+
 ## Important Development Rules
 
 - Do not expose secret keys in frontend code.
