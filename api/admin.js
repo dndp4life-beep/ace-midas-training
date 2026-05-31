@@ -4682,15 +4682,18 @@ async function createMiaKbEntryFromQuestion(supabase, payload) {
 export default async function handler(req, res) {
   try {
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-    const adminSession = readAdminSession(req);
-    if (!adminSession || adminSession.role !== "Admin") return res.status(401).json({ error: "Admin session expired. Please unlock the Back Office again." });
     const supabase = getSupabaseAdminClient();
     if (!supabase) return res.status(500).json({ error: "Supabase server configuration is missing." });
 
     const action = String(req.body?.action || "");
     const payload = req.body?.payload || {};
+    if (action === "get-settings") {
+      res.setHeader("Cache-Control", "no-store, max-age=0");
+      return res.status(200).json(await getSettings(supabase));
+    }
+    const adminSession = readAdminSession(req);
+    if (!adminSession || adminSession.role !== "Admin") return res.status(401).json({ error: "Admin session expired. Please unlock the Back Office again." });
     const actions = {
-      "get-settings": getSettings,
       "save-settings": saveSettings,
       "get-report-history": getReportHistory,
       "save-report-history": saveReportHistory,
