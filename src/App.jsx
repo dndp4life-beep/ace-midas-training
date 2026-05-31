@@ -1025,6 +1025,9 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const [ellisCategoryFilter, setEllisCategoryFilter] = useState("");
   const [ellisPriorityFilter, setEllisPriorityFilter] = useState("");
   const [ellisEmailForm, setEllisEmailForm] = useState({ sender_name: "", sender_email: "", subject: "", received_at: "", raw_excerpt: "" });
+  const [opportunityData, setOpportunityData] = useState({ opportunities: [], email_links: [], drafts: [], tasks: [], metrics: {}, insights: [], stages: [] });
+  const [opportunityBusy, setOpportunityBusy] = useState("");
+  const [opportunityFilters, setOpportunityFilters] = useState({ stage: "", agent: "", status: "", hot: "" });
   const [avaSummaryBusy, setAvaSummaryBusy] = useState("");
   const [avaSummaryResult, setAvaSummaryResult] = useState(null);
   const [avaDailySummaryResult, setAvaDailySummaryResult] = useState(null);
@@ -1071,7 +1074,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   });
   const settings = siteSettings;
 
-  const tabs = ["Dashboard", "Blogs", "Reviews", "Onboarding", "Members", "Training Compliance", "Reports & Exports", "Export Centre", "Depot Tokens", "Activity", "AI Operations", "Ellis Operations Centre", "Mia Knowledge Base", "Ava Compliance Centre", "Nia Content Studio", "Rory Prospecting Centre", "Workflow Debug Trace", "Media Manager", "Settings"];
+  const tabs = ["Dashboard", "Blogs", "Reviews", "Onboarding", "Members", "Training Compliance", "Reports & Exports", "Export Centre", "Depot Tokens", "Activity", "AI Operations", "Ellis Operations Centre", "Opportunity Pipeline", "Mia Knowledge Base", "Ava Compliance Centre", "Nia Content Studio", "Rory Prospecting Centre", "Workflow Debug Trace", "Media Manager", "Settings"];
   const statusOptions = ["Pending", "In Progress", "Active", "Complete", "Paused"];
   const subscriptionStatusOptions = ["Active", "Pending", "Suspended", "Cancelled"];
   const onboardingStatusOptions = ["New", "In Progress", "Completed"];
@@ -1218,6 +1221,20 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const safeEllisLearningEvents = asArray(safeEllisCrm.learning_events).map((event) => asObject(event));
   const safeEllisActionHistory = asArray(safeEllisCrm.action_history).map((history) => asObject(history));
   const ellisCrmMetrics = asObject(safeEllisCrm.metrics);
+  const safeOpportunityData = asObject(opportunityData);
+  const safeOpportunities = asArray(safeOpportunityData.opportunities).map((opportunity) => asObject(opportunity));
+  const safeOpportunityDrafts = asArray(safeOpportunityData.drafts).map((draft) => asObject(draft));
+  const safeOpportunityTasks = asArray(safeOpportunityData.tasks).map((task) => asObject(task));
+  const opportunityMetrics = asObject(safeOpportunityData.metrics);
+  const opportunityInsights = asArray(safeOpportunityData.insights);
+  const opportunityStageOptions = asArray(safeOpportunityData.stages).length ? asArray(safeOpportunityData.stages) : ["Prospect Found", "Outreach Sent", "Contact Engaged", "Information Requested", "Quote Requested", "Quote Sent", "Follow-Up Due", "Negotiation", "Won", "Lost", "Dormant"];
+  const filteredOpportunities = safeOpportunities.filter((opportunity) => {
+    if (opportunityFilters.stage && opportunity.stage !== opportunityFilters.stage) return false;
+    if (opportunityFilters.agent && opportunity.assigned_agent !== opportunityFilters.agent) return false;
+    if (opportunityFilters.status && opportunity.status !== opportunityFilters.status) return false;
+    if (opportunityFilters.hot === "hot" && !opportunity.is_hot) return false;
+    return true;
+  });
   const ellisCategoryOptions = ["High Priority", "Customer Enquiry", "Booking Request", "Council / Local Authority", "School / Academy Trust", "Supplier", "Invoice / Payment", "Compliance / Legal", "System Alert", "Internal Communication", "Follow-Up Required", "Marketing", "Sales Pitch", "Likely Spam", "Review Later"];
   const ellisPriorityOptions = ["Critical", "High", "Medium", "Low"];
   const filteredEllisEmails = safeEllisEmails.filter((email) => {
@@ -2419,6 +2436,103 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     }
   }
 
+  async function loadOpportunityManagement({ quiet = false } = {}) {
+    setOpportunityBusy("loading");
+    try {
+      const { response, result } = await callAdminAction("get-opportunity-management");
+      if (!response.ok) {
+        console.error("Opportunity pipeline load error:", result);
+        if (!quiet) showMessage("error", result.error || "Could not load the opportunity pipeline.");
+        return null;
+      }
+      setOpportunityData(result);
+      if (!quiet) showMessage("success", "Opportunity pipeline refreshed.");
+      return result;
+    } catch (error) {
+      console.error("Opportunity pipeline load error:", error);
+      if (!quiet) showMessage("error", "Could not load the opportunity pipeline.");
+      return null;
+    } finally {
+      setOpportunityBusy("");
+    }
+  }
+
+  async function updateOpportunity(opportunity, updates, successMessage = "Opportunity updated.") {
+    setOpportunityBusy(opportunity.id);
+    try {
+      const { response, result } = await callAdminAction("update-opportunity", { id: opportunity.id, ...updates });
+      if (!response.ok) {
+        console.error("Opportunity update error:", result);
+        showMessage("error", result.error || "Could not update the opportunity.");
+        return;
+      }
+      setOpportunityData(result);
+      showMessage("success", successMessage);
+    } catch (error) {
+      console.error("Opportunity update error:", error);
+      showMessage("error", "Could not update the opportunity.");
+    } finally {
+      setOpportunityBusy("");
+    }
+  }
+
+  async function createOpportunityFollowUp(opportunity) {
+    setOpportunityBusy(opportunity.id);
+    try {
+      const { response, result } = await callAdminAction("create-opportunity-follow-up", { opportunity_id: opportunity.id });
+      if (!response.ok) {
+        console.error("Opportunity follow-up error:", result);
+        showMessage("error", result.error || "Could not create the follow-up task.");
+        return;
+      }
+      setOpportunityData(result);
+      showMessage("success", "Follow-up task created for review.");
+    } catch (error) {
+      console.error("Opportunity follow-up error:", error);
+      showMessage("error", "Could not create the follow-up task.");
+    } finally {
+      setOpportunityBusy("");
+    }
+  }
+
+  async function createOpportunityMiaDraft(opportunity) {
+    setOpportunityBusy(opportunity.id);
+    try {
+      const { response, result } = await callAdminAction("create-opportunity-mia-draft", { opportunity_id: opportunity.id, organisation_name: opportunity.organisation_name });
+      if (!response.ok) {
+        console.error("Mia opportunity draft error:", result);
+        showMessage("error", result.error || "Could not prepare Mia's draft.");
+        return;
+      }
+      setOpportunityData(result);
+      showMessage("success", "Mia draft prepared for review. Nothing has been sent.");
+    } catch (error) {
+      console.error("Mia opportunity draft error:", error);
+      showMessage("error", "Could not prepare Mia's draft.");
+    } finally {
+      setOpportunityBusy("");
+    }
+  }
+
+  async function updateOpportunityDraft(draft, updates, successMessage) {
+    setOpportunityBusy(draft.id);
+    try {
+      const { response, result } = await callAdminAction("update-opportunity-draft", { id: draft.id, ...updates });
+      if (!response.ok) {
+        console.error("Opportunity draft update error:", result);
+        showMessage("error", result.error || "Could not update Mia's draft.");
+        return;
+      }
+      setOpportunityData(result);
+      showMessage("success", successMessage || "Mia draft updated.");
+    } catch (error) {
+      console.error("Opportunity draft update error:", error);
+      showMessage("error", "Could not update Mia's draft.");
+    } finally {
+      setOpportunityBusy("");
+    }
+  }
+
   async function submitEllisEmail(event) {
     event.preventDefault();
     setEllisBusy("triage");
@@ -2956,6 +3070,11 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
       loadEllisOperations({ quiet: true });
     }, 60000);
     return () => window.clearInterval(intervalId);
+  }, [unlocked, activeTab]);
+
+  useEffect(() => {
+    if (!unlocked || activeTab !== "Opportunity Pipeline") return;
+    loadOpportunityManagement({ quiet: true });
   }, [unlocked, activeTab]);
 
   async function unlockBackOffice(e) {
@@ -5553,6 +5672,95 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                         <thead><tr className="border-b border-slate-200 text-xs uppercase text-slate-500"><th className="p-3">Domain</th><th className="p-3">Type</th><th className="p-3">Suggested category</th><th className="p-3">Route</th><th className="p-3">Confidence</th><th className="p-3">History</th></tr></thead>
                         <tbody>{safeEllisSenderDomains.length ? safeEllisSenderDomains.slice(0, 20).map((domain) => <tr key={domain.id} className="border-b border-slate-100"><td className="p-3 font-black">{safeText(domain.domain, "Unknown")}</td><td className="p-3">{safeText(domain.organisation_type, "Other")}</td><td className="p-3">{safeText(domain.suggested_category, "Review Later")}</td><td className="p-3">{safeText(domain.suggested_route, "Ellis")}</td><td className="p-3">{Number(domain.domain_confidence || 0)}%</td><td className="p-3">{Number(domain.interaction_count || 0)} email(s) · {Number(domain.correction_count || 0)} correction(s)</td></tr>) : <tr><td colSpan="6" className="p-4 text-sm font-bold text-slate-600">Domain intelligence will appear after the next inbox sync.</td></tr>}</tbody>
                       </table>
+                    </div>
+                  </section>
+                </div>
+              </SafeSectionBoundary>
+            ) : null}
+
+            {activeTab === "Opportunity Pipeline" ? (
+              <SafeSectionBoundary title="Opportunity Pipeline">
+                <div>
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="text-sm font-black uppercase tracking-[0.18em] text-emerald-700">Ellis Opportunity Intelligence</p>
+                      <h2 className="mt-2 text-2xl font-black sm:text-3xl">Opportunity Pipeline</h2>
+                      <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">Track prospects, replies, quote interest and follow-up work. Ellis suggests next steps and Mia prepares drafts, but nothing is sent automatically.</p>
+                    </div>
+                    <button type="button" onClick={() => loadOpportunityManagement({ quiet: false })} disabled={opportunityBusy === "loading"} className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-black text-white disabled:opacity-60">{opportunityBusy === "loading" ? "Refreshing..." : "Refresh Pipeline"}</button>
+                  </div>
+
+                  <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+                    {[
+                      ["Open", opportunityMetrics.total_open || 0, "bg-slate-50 text-slate-800"],
+                      ["Hot", opportunityMetrics.hot || 0, "bg-red-50 text-red-800"],
+                      ["Follow-ups due", opportunityMetrics.follow_ups_due || 0, "bg-amber-50 text-amber-800"],
+                      ["Quotes awaiting response", opportunityMetrics.quote_requested || 0, "bg-blue-50 text-blue-800"],
+                      ["Pipeline value", `£${Number(opportunityMetrics.estimated_pipeline_value || 0).toFixed(2)}`, "bg-emerald-50 text-emerald-800"],
+                      ["Wins", opportunityMetrics.recent_wins || 0, "bg-teal-50 text-teal-800"],
+                      ["Losses", opportunityMetrics.recent_losses || 0, "bg-slate-100 text-slate-700"]
+                    ].map(([label, value, style]) => <div key={label} className={`rounded-2xl border border-slate-200 p-4 ${style}`}><p className="text-xs font-black uppercase">{label}</p><p className="mt-2 text-2xl font-black">{value}</p></div>)}
+                  </div>
+
+                  <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <h3 className="text-xl font-black">Ellis Insights</h3>
+                    <div className="mt-4 grid gap-2">
+                      {opportunityInsights.length ? opportunityInsights.map((insight, index) => <p key={`${insight}-${index}`} className="rounded-xl bg-amber-50 p-4 text-sm font-bold text-amber-900">{insight}</p>) : <p className="rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-600">No urgent opportunity insights yet.</p>}
+                    </div>
+                  </section>
+
+                  <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                      <div>
+                        <h3 className="text-xl font-black">Sales Pipeline</h3>
+                        <p className="mt-1 text-sm font-semibold text-slate-600">Ellis keeps opportunity stages organised while all customer-facing actions stay review-first.</p>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-4">
+                        <select value={opportunityFilters.stage} onChange={(event) => setOpportunityFilters((current) => ({ ...current, stage: event.target.value }))} className="rounded-xl border border-slate-200 p-3 text-sm"><option value="">All stages</option>{opportunityStageOptions.map((stage) => <option key={stage}>{stage}</option>)}</select>
+                        <select value={opportunityFilters.agent} onChange={(event) => setOpportunityFilters((current) => ({ ...current, agent: event.target.value }))} className="rounded-xl border border-slate-200 p-3 text-sm"><option value="">All owners</option>{ellisRouteOptions.map((agent) => <option key={agent}>{agent}</option>)}</select>
+                        <select value={opportunityFilters.status} onChange={(event) => setOpportunityFilters((current) => ({ ...current, status: event.target.value }))} className="rounded-xl border border-slate-200 p-3 text-sm"><option value="">All statuses</option>{["open", "won", "lost", "dormant"].map((status) => <option key={status}>{status}</option>)}</select>
+                        <select value={opportunityFilters.hot} onChange={(event) => setOpportunityFilters((current) => ({ ...current, hot: event.target.value }))} className="rounded-xl border border-slate-200 p-3 text-sm"><option value="">All temperatures</option><option value="hot">Hot only</option></select>
+                      </div>
+                    </div>
+                    <div className="mt-5 grid gap-4">
+                      {filteredOpportunities.length ? filteredOpportunities.map((opportunity) => <article key={opportunity.id} className={`rounded-2xl border p-4 ${opportunity.is_hot ? "border-red-200 bg-red-50" : "border-slate-200 bg-slate-50"}`}>
+                        <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-start">
+                          <div>
+                            <div className="flex flex-wrap gap-2">
+                              <span className="rounded-full bg-slate-950 px-3 py-1 text-xs font-black text-white">{safeText(opportunity.stage, "Prospect Found")}</span>
+                              <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-700">{safeText(opportunity.assigned_agent, "Mia")}</span>
+                              {opportunity.is_hot ? <span className="rounded-full bg-red-200 px-3 py-1 text-xs font-black text-red-900">HOT</span> : null}
+                            </div>
+                            <h4 className="mt-3 text-lg font-black">{safeText(opportunity.organisation_name, "Unlinked opportunity")}</h4>
+                            <p className="mt-1 text-sm font-semibold text-slate-600">{safeText(opportunity.contact_name || opportunity.contact_email, "Contact not linked")}</p>
+                            <p className="mt-3 text-sm font-semibold text-slate-700">Next action: {safeText(opportunity.next_action, "Review opportunity")}</p>
+                            <p className="mt-1 text-xs font-bold text-slate-500">Due: {opportunity.next_action_due ? formatDisplayDate(opportunity.next_action_due) : "Not scheduled"} | Value: £{Number(opportunity.estimated_value || 0).toFixed(2)} | Confidence: {Number(opportunity.confidence || 0)}%</p>
+                            {opportunity.hot_reason ? <p className="mt-2 text-xs font-black text-red-700">{opportunity.hot_reason}</p> : null}
+                          </div>
+                          <div className="grid gap-2 sm:grid-cols-2 lg:w-[360px]">
+                            <select value={opportunity.stage || "Prospect Found"} onChange={(event) => updateOpportunity(opportunity, { stage: event.target.value }, "Opportunity stage updated.")} disabled={opportunityBusy === opportunity.id} className="rounded-lg border border-slate-300 bg-white p-2 text-xs font-black disabled:opacity-60">{opportunityStageOptions.map((stage) => <option key={stage}>{stage}</option>)}</select>
+                            <select value={opportunity.assigned_agent || "Mia"} onChange={(event) => updateOpportunity(opportunity, { assigned_agent: event.target.value }, "Opportunity owner updated.")} disabled={opportunityBusy === opportunity.id} className="rounded-lg border border-slate-300 bg-white p-2 text-xs font-black disabled:opacity-60">{ellisRouteOptions.map((agent) => <option key={agent}>{agent}</option>)}</select>
+                            <button type="button" onClick={() => createOpportunityFollowUp(opportunity)} disabled={opportunityBusy === opportunity.id} className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-black text-white disabled:opacity-60">Create Follow-Up Task</button>
+                            <button type="button" onClick={() => createOpportunityMiaDraft(opportunity)} disabled={opportunityBusy === opportunity.id} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-60">Prepare Mia Draft</button>
+                          </div>
+                        </div>
+                      </article>) : <p className="rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-600">No opportunities match the selected filters.</p>}
+                    </div>
+                  </section>
+
+                  <section className="mt-6 grid gap-6 lg:grid-cols-2">
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                      <h3 className="text-xl font-black">Opportunity Follow-Ups</h3>
+                      <div className="mt-4 grid gap-3">
+                        {safeOpportunityTasks.length ? safeOpportunityTasks.slice(0, 12).map((task) => <article key={task.id} className="rounded-xl bg-slate-50 p-4"><div className="flex flex-wrap gap-2"><span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-black text-blue-800">{safeText(task.status, "New")}</span><span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-700">{safeText(task.assigned_agent, "Mia")}</span></div><p className="mt-3 font-black">{safeText(task.task_title, "Follow-up task")}</p><p className="mt-1 text-xs font-bold text-slate-500">Due: {task.due_date ? formatDisplayDate(task.due_date) : "Not set"}</p></article>) : <p className="rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-600">No opportunity follow-up tasks yet.</p>}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                      <h3 className="text-xl font-black">Mia Assisted Responses</h3>
+                      <p className="mt-1 text-sm font-semibold text-slate-600">Drafts stay in review. Approving a draft records your decision but does not send an email.</p>
+                      <div className="mt-4 grid gap-3">
+                        {safeOpportunityDrafts.length ? safeOpportunityDrafts.slice(0, 8).map((draft) => <article key={draft.id} className="rounded-xl bg-slate-50 p-4"><div className="flex flex-wrap gap-2"><span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800">{safeText(draft.status, "draft")}</span><span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-700">{safeText(draft.agent_name, "Mia")}</span></div><p className="mt-3 font-black">{safeText(draft.draft_subject, "Draft response")}</p><p className="mt-2 whitespace-pre-line text-sm font-semibold leading-relaxed text-slate-600">{safeText(draft.draft_body, "No draft body")}</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => updateOpportunityDraft(draft, { status: "approved" }, "Mia draft approved for manual sending.")} disabled={opportunityBusy === draft.id} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-60">Approve Draft</button><button type="button" onClick={() => updateOpportunityDraft(draft, { status: "rejected" }, "Mia draft rejected.")} disabled={opportunityBusy === draft.id} className="rounded-lg bg-red-600 px-3 py-2 text-xs font-black text-white disabled:opacity-60">Reject Draft</button></div></article>) : <p className="rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-600">No Mia opportunity drafts yet.</p>}
+                      </div>
                     </div>
                   </section>
                 </div>
