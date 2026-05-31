@@ -259,6 +259,24 @@ Trusted sending has an explicit Back Office processor. It remains disabled at Le
 
 Restricted categories always remain under Marvin review: complaints, legal/compliance matters, safeguarding, invoices/payments, payment disputes, council tenders, contract negotiations and low-confidence communications.
 
+## Phase 8A Executive Command Centre
+
+The Back Office Dashboard is the read-only Executive Command Centre and becomes the default landing tab after a fresh admin unlock.
+
+It summarises existing operational data without changing automation behaviour:
+
+- Active and hot opportunities
+- Follow-ups and bookings awaiting action
+- New replies and urgent alerts
+- Estimated pipeline value
+- Rory prospecting quality and outreach readiness
+- Mia outreach and communication outcomes
+- Ellis inbox, CRM and routing activity
+- Theo booking workload
+- A deterministic morning briefing and Marvin urgent-actions panel
+
+The protected `/api/admin` action is `get-executive-dashboard`. It only reads existing operational tables and does not send email, update records, advance opportunity stages or create tasks.
+
 ## Important Development Rules
 
 - Do not expose secret keys in frontend code.

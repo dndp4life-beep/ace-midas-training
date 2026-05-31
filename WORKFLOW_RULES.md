@@ -334,6 +334,15 @@ Daily AI Summary should include:
 - Nia drafts created
 - Failed sends or reminders
 
+## Phase 8A Executive Command Centre Rules
+
+- The default Dashboard tab after a fresh Back Office unlock is the Executive Command Centre.
+- The Executive Command Centre is read-only.
+- It may aggregate opportunities, tasks, prospects, inbox records, CRM interactions, urgent alerts, routing-learning events and Theo approval records.
+- It must not send email, create tasks, advance opportunity stages, change routing, enable automation or resolve alerts.
+- The morning briefing is generated from current records when the dashboard loads.
+- Urgent actions remain review items for Marvin.
+
 ## Do Not Break Existing Workflows
 
 When editing the project, avoid breaking:
