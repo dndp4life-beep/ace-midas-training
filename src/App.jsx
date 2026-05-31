@@ -130,6 +130,22 @@ function safeText(value, fallback = "Not logged") {
   }
 }
 
+function ExecutiveMetricCard({ label, value, tone = "slate" }) {
+  const tones = {
+    slate: "border-slate-200 bg-slate-50 text-slate-950",
+    emerald: "border-emerald-200 bg-emerald-50 text-emerald-900",
+    amber: "border-amber-200 bg-amber-50 text-amber-900",
+    red: "border-red-200 bg-red-50 text-red-900",
+    blue: "border-blue-200 bg-blue-50 text-blue-900",
+    violet: "border-violet-200 bg-violet-50 text-violet-900"
+  };
+  return <div className={`rounded-xl border p-4 ${tones[tone] || tones.slate}`}><p className="text-xs font-black uppercase tracking-wide opacity-70">{label}</p><p className="mt-2 text-2xl font-black">{value}</p></div>;
+}
+
+function ExecutiveSummaryPanel({ title, items = [], tone = "slate" }) {
+  return <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><h3 className="text-lg font-black">{title}</h3><div className="mt-4 grid gap-2">{items.map((item) => <div key={item.label} className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2 text-sm"><span className="font-semibold text-slate-600">{item.label}</span><span className={`font-black ${tone === "emerald" ? "text-emerald-700" : tone === "blue" ? "text-blue-700" : tone === "violet" ? "text-violet-700" : "text-slate-950"}`}>{item.value}</span></div>)}</div></div>;
+}
+
 function safeErrorText(value, fallback = "Something went wrong.") {
   if (!value) return fallback;
   if (typeof value === "string") return value;
@@ -1027,6 +1043,8 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const [ellisEmailForm, setEllisEmailForm] = useState({ sender_name: "", sender_email: "", subject: "", received_at: "", raw_excerpt: "" });
   const [opportunityData, setOpportunityData] = useState({ opportunities: [], email_links: [], drafts: [], tasks: [], metrics: {}, insights: [], stages: [] });
   const [opportunityBusy, setOpportunityBusy] = useState("");
+  const [executiveDashboard, setExecutiveDashboard] = useState({ executive_summary: {}, rory_summary: {}, mia_summary: {}, ellis_summary: {}, theo_summary: {}, urgent_actions: [], morning_briefing: { priorities: [] }, generated_at: "" });
+  const [executiveDashboardBusy, setExecutiveDashboardBusy] = useState("");
   const [opportunityFilters, setOpportunityFilters] = useState({ stage: "", agent: "", status: "", hot: "" });
   const [miaCommunicationData, setMiaCommunicationData] = useState({ settings: {}, profiles: [], memory: [], sequences: [], sequence_steps: [], drafts: [], metrics: {} });
   const [miaCommunicationBusy, setMiaCommunicationBusy] = useState("");
@@ -2445,6 +2463,27 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     }
   }
 
+  async function loadExecutiveDashboard({ quiet = false } = {}) {
+    setExecutiveDashboardBusy("loading");
+    try {
+      const { response, result } = await callAdminAction("get-executive-dashboard");
+      if (!response.ok) {
+        console.error("Executive dashboard load error:", result);
+        if (!quiet) showMessage("error", result.error || "Could not load the Executive Command Centre.");
+        return null;
+      }
+      setExecutiveDashboard(result);
+      if (!quiet) showMessage("success", "Executive Command Centre refreshed.");
+      return result;
+    } catch (error) {
+      console.error("Executive dashboard load error:", error);
+      if (!quiet) showMessage("error", "Could not load the Executive Command Centre.");
+      return null;
+    } finally {
+      setExecutiveDashboardBusy("");
+    }
+  }
+
   async function loadOpportunityManagement({ quiet = false } = {}) {
     setOpportunityBusy("loading");
     try {
@@ -3166,6 +3205,11 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   }, [unlocked, activeTab]);
 
   useEffect(() => {
+    if (!unlocked || activeTab !== "Dashboard") return;
+    loadExecutiveDashboard({ quiet: true });
+  }, [unlocked, activeTab]);
+
+  useEffect(() => {
     if (!unlocked || activeTab !== "Mia Knowledge Base") return;
     loadMiaKnowledgeBase({ quiet: true });
   }, [unlocked, activeTab]);
@@ -3207,6 +3251,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
       }
       setUnlocked(true);
       setAdminRole(result.role || "Admin");
+      setActiveTab("Dashboard");
       setCode("");
       showMessage("success", "Back Office unlocked securely.");
       setActivity((current) => ["Admin unlocked Back Office", ...current]);
@@ -4355,6 +4400,13 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     { title: "Audit Trail Report", type: "audit", format: "PDF", action: "pdf", description: "Structured audit trail for record changes, exports and compliance activity." },
     { title: "Organisation Summary", type: "organisation", format: "Excel-ready", action: "csv", description: "Organisation-level staff counts, record totals and contact details in one report." }
   ];
+  const executiveSummary = executiveDashboard.executive_summary || {};
+  const executiveRory = executiveDashboard.rory_summary || {};
+  const executiveMia = executiveDashboard.mia_summary || {};
+  const executiveEllis = executiveDashboard.ellis_summary || {};
+  const executiveTheo = executiveDashboard.theo_summary || {};
+  const executiveUrgentActions = Array.isArray(executiveDashboard.urgent_actions) ? executiveDashboard.urgent_actions : [];
+  const executiveBriefing = executiveDashboard.morning_briefing || {};
 
   if (!unlocked) {
     return (
@@ -4414,15 +4466,52 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
 
           <section className="min-w-0 overflow-hidden rounded-2xl bg-white p-4 text-slate-950 shadow-sm sm:p-6">
             {activeTab === "Dashboard" ? (
-              <div>
-                <h2 className="text-2xl font-black sm:text-3xl">Dashboard</h2>
-                <div className="mt-6 grid gap-4 md:grid-cols-4">
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm"><p className="text-sm font-semibold text-slate-500">Posts</p><p className="mt-2 text-2xl font-black sm:text-3xl">{posts.length}</p></div>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm"><p className="text-sm font-semibold text-slate-500">Reviews</p><p className="mt-2 text-2xl font-black sm:text-3xl">{reviews.length}</p></div>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm"><p className="text-sm font-semibold text-slate-500">Onboarding</p><p className="mt-2 text-2xl font-black sm:text-3xl">{onboarding.length}</p></div>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm"><p className="text-sm font-semibold text-slate-500">Members</p><p className="mt-2 text-2xl font-black sm:text-3xl">{members.length}</p></div>
+              <SafeSectionBoundary title="Executive Command Centre">
+                <div>
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Executive Overview</p>
+                      <h2 className="mt-2 text-2xl font-black sm:text-3xl">Executive Command Centre</h2>
+                      <p className="mt-2 max-w-3xl text-sm font-semibold leading-relaxed text-slate-600">A read-only operational view of opportunities, prospecting, outreach, inbox intelligence and booking work.</p>
+                    </div>
+                    <button type="button" onClick={() => loadExecutiveDashboard({ quiet: false })} disabled={executiveDashboardBusy === "loading"} className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-black text-white disabled:opacity-60">{executiveDashboardBusy === "loading" ? "Refreshing..." : "Refresh Overview"}</button>
+                  </div>
+                  <p className="mt-3 text-xs font-bold text-slate-500">Last refreshed: {executiveDashboard.generated_at ? formatDisplayDateTime(executiveDashboard.generated_at) : executiveDashboardBusy === "loading" ? "Loading live data..." : "Waiting for refresh"}</p>
+
+                  <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <ExecutiveMetricCard label="Active Opportunities" value={Number(executiveSummary.active_opportunities || 0)} tone="blue" />
+                    <ExecutiveMetricCard label="Hot Opportunities" value={Number(executiveSummary.hot_opportunities || 0)} tone="red" />
+                    <ExecutiveMetricCard label="Awaiting Follow-Up" value={Number(executiveSummary.opportunities_awaiting_follow_up || 0)} tone="amber" />
+                    <ExecutiveMetricCard label="New Replies Today" value={Number(executiveSummary.new_replies_today || 0)} tone="emerald" />
+                    <ExecutiveMetricCard label="Bookings Awaiting Action" value={Number(executiveSummary.bookings_awaiting_action || 0)} tone="violet" />
+                    <ExecutiveMetricCard label="Urgent Alerts" value={Number(executiveSummary.urgent_alerts || 0)} tone="red" />
+                    <ExecutiveMetricCard label="Estimated Pipeline Value" value={`£${Number(executiveSummary.estimated_pipeline_value || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} tone="emerald" />
+                  </div>
+
+                  <div className="mt-6 grid gap-4 xl:grid-cols-[1fr_1.1fr]">
+                    <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-xs font-black uppercase tracking-wide text-emerald-700">Morning Briefing</p>
+                      <h3 className="mt-2 text-xl font-black">{safeText(executiveBriefing.greeting, "Good morning Marvin")}</h3>
+                      <div className="mt-4 grid gap-2">
+                        {(Array.isArray(executiveBriefing.priorities) && executiveBriefing.priorities.length ? executiveBriefing.priorities : ["No briefing data available yet."]).map((item) => <p key={item} className="rounded-lg bg-white p-3 text-sm font-semibold text-slate-700">{item}</p>)}
+                      </div>
+                    </section>
+                    <section className="rounded-xl border border-red-200 bg-red-50 p-4">
+                      <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-wide text-red-700">Urgent Actions</p><h3 className="mt-2 text-xl font-black text-red-950">Items requiring Marvin attention</h3></div><span className="rounded-full bg-red-700 px-3 py-1 text-xs font-black text-white">{executiveUrgentActions.length}</span></div>
+                      <div className="mt-4 grid max-h-80 gap-2 overflow-auto">
+                        {executiveUrgentActions.length ? executiveUrgentActions.map((item, index) => <article key={`${item.type}-${item.title}-${index}`} className="rounded-lg bg-white p-3"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-red-100 px-2 py-1 text-[11px] font-black text-red-800">{safeText(item.type, "Review")}</span><span className="text-[11px] font-black text-slate-500">{safeText(item.priority, "High")}</span></div><p className="mt-2 text-sm font-black text-slate-950">{safeText(item.title, "Review required")}</p><p className="mt-1 text-xs font-semibold leading-relaxed text-slate-600">{safeText(item.summary, "Review the linked activity.")}</p></article>) : <p className="rounded-lg bg-white p-3 text-sm font-semibold text-slate-600">No urgent actions are waiting.</p>}
+                      </div>
+                    </section>
+                  </div>
+
+                  <div className="mt-6 grid gap-4 xl:grid-cols-2">
+                    <ExecutiveSummaryPanel title="Rory Prospecting Summary" tone="blue" items={[{ label: "Prospects found today", value: Number(executiveRory.prospects_found_today || 0) }, { label: "Prospects found this week", value: Number(executiveRory.prospects_found_this_week || 0) }, { label: "High priority prospects", value: Number(executiveRory.high_priority_prospects || 0) }, { label: "Awaiting outreach", value: Number(executiveRory.prospects_awaiting_outreach || 0) }, { label: "Prospect quality score", value: `${Number(executiveRory.prospect_quality_score || 0)}%` }]} />
+                    <ExecutiveSummaryPanel title="Mia Outreach Summary" tone="emerald" items={[{ label: "Outreach sent today", value: Number(executiveMia.outreach_sent_today || 0) }, { label: "Follow-ups sent", value: Number(executiveMia.follow_ups_sent || 0) }, { label: "Positive replies", value: Number(executiveMia.positive_replies || 0) }, { label: "Quote requests", value: Number(executiveMia.quote_requests || 0) }, { label: "Opportunities created today", value: Number(executiveMia.opportunities_created || 0) }, { label: "Automation success rate", value: `${Number(executiveMia.automation_success_rate || 0)}%` }]} />
+                    <ExecutiveSummaryPanel title="Ellis Inbox Summary" tone="violet" items={[{ label: "Emails processed today", value: Number(executiveEllis.emails_processed || 0) }, { label: "CRM records updated", value: Number(executiveEllis.crm_records_updated || 0) }, { label: "Opportunities updated", value: Number(executiveEllis.opportunities_updated || 0) }, { label: "Urgent escalations", value: Number(executiveEllis.urgent_escalations || 0) }, { label: "Routing accuracy", value: `${Number(executiveEllis.routing_accuracy || 0)}%` }]} />
+                    <ExecutiveSummaryPanel title="Theo Booking Summary" tone="slate" items={[{ label: "Website bookings", value: Number(executiveTheo.website_bookings || 0) }, { label: "Booking amendments", value: Number(executiveTheo.booking_amendments || 0) }, { label: "Confirmations pending", value: Number(executiveTheo.booking_confirmations_pending || 0) }, { label: "Booking tasks outstanding", value: Number(executiveTheo.booking_tasks_outstanding || 0) }]} />
+                  </div>
                 </div>
-              </div>
+              </SafeSectionBoundary>
             ) : null}
 
             {activeTab === "Blogs" ? (
