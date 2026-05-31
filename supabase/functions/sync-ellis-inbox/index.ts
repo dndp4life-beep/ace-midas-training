@@ -197,7 +197,21 @@ function parseRawEmail(raw: string, uid: string) {
   };
 }
 
-function classifyEmail(email: Record<string, string>) {
+function routeForCategory(category: string) {
+  if (["Council / Local Authority", "Invoice / Payment", "Compliance / Legal"].includes(category)) return "Marvin";
+  if (["Booking Request", "Customer Enquiry", "Follow-Up Required"].includes(category)) return "Mia";
+  if (["Likely Spam", "Marketing", "Sales Pitch"].includes(category)) return "Ellis";
+  return "Ellis";
+}
+
+function inferOrganisationType(domain: string, category: string) {
+  if (domain.endsWith(".gov.uk") || category === "Council / Local Authority") return "Local Authority";
+  if (category === "School / Academy Trust" || domain.includes("school") || domain.includes("academy")) return "School / Academy Trust";
+  if (["Likely Spam", "Marketing", "Sales Pitch"].includes(category)) return "Supplier / Marketing";
+  return "Other";
+}
+
+function classifyEmail(email: Record<string, string>, domainIntel: Record<string, unknown> | null = null) {
   const text = `${email.sender_name} ${email.sender_email} ${email.subject} ${email.raw_excerpt}`.toLowerCase();
   const has = (...values: string[]) => values.some((value) => text.includes(value));
   const unsolicitedServiceOffer = has("finance solution", "flexible finance", "business loan", "funding solution", "working capital", "local electrician", "electrician for", "seo", "backlink", "guest post", "web design", "marketing package", "lead generation", "outsourcing", "our services", "offer you our", "we offer businesses", "grow your business", "improve your website", "free consultation", "crypto");
@@ -249,7 +263,14 @@ function classifyEmail(email: Record<string, string>) {
     matched_rules.push("marketing");
   }
 
-  const confidence_score = matched_rules.length ? (protectedReview ? 92 : 84) : 55;
+  const learnedCategory = String(domainIntel?.suggested_category || "");
+  const learnedRoute = String(domainIntel?.suggested_route || "");
+  const learnedConfidence = Number(domainIntel?.domain_confidence || 0);
+  if (category === "Review Later" && learnedCategory && learnedConfidence >= 70) {
+    category = learnedCategory;
+    matched_rules.push("sender_domain_history");
+  }
+  const confidence_score = matched_rules.length ? (protectedReview ? 92 : Math.max(84, learnedConfidence || 0)) : 55;
   return {
     summary: email.raw_excerpt.slice(0, 320),
     category,
@@ -258,10 +279,12 @@ function classifyEmail(email: Record<string, string>) {
     recommended_action,
     requires_review: protectedReview || category === "Review Later" || category === "Booking Request",
     review_status: "Pending",
+    assigned_route: learnedRoute && learnedConfidence >= 70 ? learnedRoute : routeForCategory(category),
     reasoning_metadata: {
-      version: "ellis_phase_2_livemail_rules_v1",
+      version: "ellis_phase_4_livemail_rules_v2",
       matched_rules,
       protected_review: protectedReview,
+      sender_domain_history_used: matched_rules.includes("sender_domain_history"),
       safety: { read_only_sync: true, auto_delete: false, auto_send: false, auto_archive: false, auto_unsubscribe: false },
     },
   };
@@ -271,6 +294,8 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
 
   let conn: Deno.TlsConn | null = null;
+  let supabase: ReturnType<typeof createClient> | null = null;
+  let syncHistoryId = "";
   try {
     const supabaseUrl = requiredSecret("SUPABASE_URL");
     const serviceRoleKey = requiredSecret("SUPABASE_SERVICE_ROLE_KEY");
@@ -284,7 +309,22 @@ Deno.serve(async (req) => {
     const port = Number(Deno.env.get("ELLIS_IMAP_PORT") || "993");
     if (!Number.isFinite(port)) throw new Error("ELLIS_IMAP_PORT must be numeric.");
 
-    const supabase = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
+    let requestBody: Record<string, unknown> = {};
+    try {
+      requestBody = await req.json();
+    } catch {
+      // Manual sync requests created before Phase 4 may not include a body.
+    }
+    const triggerSource = String(requestBody.source || "manual").slice(0, 80);
+    supabase = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
+    const { data: syncHistory, error: syncHistoryError } = await supabase
+      .from("ellis_sync_history")
+      .insert({ provider: "livemail_imap", status: "running", trigger_source: triggerSource })
+      .select("id")
+      .single();
+    if (syncHistoryError) throw syncHistoryError;
+    syncHistoryId = syncHistory.id;
+
     const { data: connection, error: connectionError } = await supabase
       .from("mailbox_connections")
       .upsert({
@@ -332,7 +372,13 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        const analysis = classifyEmail(email);
+        const senderDomain = email.sender_email.split("@")[1]?.toLowerCase() || "";
+        const { data: domainIntel, error: domainIntelError } = senderDomain
+          ? await supabase.from("sender_domain_intelligence").select("*").eq("domain", senderDomain).maybeSingle()
+          : { data: null, error: null };
+        if (domainIntelError) throw domainIntelError;
+
+        const analysis = classifyEmail(email, domainIntel);
         const { data: inserted, error: insertError } = await supabase
           .from("email_triage")
           .insert({
@@ -352,6 +398,31 @@ Deno.serve(async (req) => {
           metadata: { provider: "livemail_imap", uid, priority: inserted.priority, read_only: true },
         });
         if (logError) throw logError;
+
+        if (senderDomain) {
+          const previousHistory = Array.isArray(domainIntel?.classification_history) ? domainIntel.classification_history : [];
+          const preserveCorrection = Number(domainIntel?.correction_count || 0) > 0;
+          const { error: domainUpsertError } = await supabase.from("sender_domain_intelligence").upsert({
+            domain: senderDomain,
+            organisation_name: domainIntel?.organisation_name || senderDomain.split(".")[0].replace(/[-_]+/g, " "),
+            organisation_type: domainIntel?.organisation_type || inferOrganisationType(senderDomain, analysis.category),
+            suggested_category: preserveCorrection ? domainIntel?.suggested_category : analysis.category,
+            suggested_route: preserveCorrection ? domainIntel?.suggested_route : analysis.assigned_route,
+            domain_confidence: preserveCorrection ? domainIntel?.domain_confidence : Math.max(Number(domainIntel?.domain_confidence || 0), analysis.confidence_score),
+            interaction_count: Number(domainIntel?.interaction_count || 0) + 1,
+            correction_count: Number(domainIntel?.correction_count || 0),
+            classification_history: [...previousHistory, {
+              email_triage_id: inserted.id,
+              category: analysis.category,
+              route: analysis.assigned_route,
+              confidence: analysis.confidence_score,
+              recorded_at: new Date().toISOString(),
+            }].slice(-30),
+            last_seen_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "domain" });
+          if (domainUpsertError) throw domainUpsertError;
+        }
         imported += 1;
       } catch (error) {
         console.error("Ellis message import error:", error);
@@ -375,9 +446,25 @@ Deno.serve(async (req) => {
       metadata: { unread_found: uids.length, imported, duplicates_skipped, errors: errors.slice(0, 10), read_only: true },
     });
 
+    await supabase.from("ellis_sync_history").update({
+      status: errors.length ? "completed_with_warnings" : "completed",
+      unread_found: uids.length,
+      imported,
+      duplicates_skipped,
+      errors: errors.slice(0, 10),
+      completed_at: new Date().toISOString(),
+    }).eq("id", syncHistoryId);
+
     return json({ success: true, unread_found: uids.length, imported, duplicates_skipped, errors });
   } catch (error) {
     console.error("Ellis inbox sync error:", error);
+    if (supabase && syncHistoryId) {
+      await supabase.from("ellis_sync_history").update({
+        status: "failed",
+        errors: [error instanceof Error ? error.message : "Unable to sync inbox."],
+        completed_at: new Date().toISOString(),
+      }).eq("id", syncHistoryId);
+    }
     try {
       conn?.close();
     } catch {
