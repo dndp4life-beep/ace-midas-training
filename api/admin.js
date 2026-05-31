@@ -1060,6 +1060,7 @@ async function ensureOpportunityIntelligence(supabase) {
     if (error) throw error;
     opportunities.push(data);
     await supabase.from("prospects").update({ opportunity_id: data.id, pipeline_stage: stage, updated_at: new Date().toISOString() }).eq("id", prospect.id);
+    await ensureStageFollowUpTask(supabase, data);
   }
   const linkedEmailIds = new Set((linksResult.data || []).map((item) => item.email_triage_id));
   for (const email of emailsResult.data || []) {
@@ -1167,6 +1168,7 @@ async function updateOpportunity(supabase, payload) {
   const { data, error } = await supabase.from("opportunities").update(updates).eq("id", id).select(opportunitySelect).single();
   if (error) throw error;
   if (data.prospect_id) await supabase.from("prospects").update({ pipeline_stage: data.stage, updated_at: new Date().toISOString() }).eq("id", data.prospect_id);
+  await ensureStageFollowUpTask(supabase, data);
   await insertEllisActivity(supabase, { action_type: "opportunity_updated", summary: `Opportunity updated to ${data.stage}.`, metadata: { opportunity_id: id, updates } });
   return getOpportunityManagement(supabase);
 }
@@ -1195,6 +1197,46 @@ async function createOpportunityFollowUp(supabase, payload) {
   if (taskError) throw taskError;
   await supabase.from("opportunities").update({ next_action: "Follow-up task created for review.", next_action_due: dueDate, updated_at: new Date().toISOString() }).eq("id", opportunity.id);
   return getOpportunityManagement(supabase);
+}
+
+async function ensureStageFollowUpTask(supabase, opportunity) {
+  const schedule = {
+    "Outreach Sent": { days: 7, title: "Review first outreach follow-up" },
+    "Quote Sent": { days: 14, title: "Review quote follow-up" },
+    "Follow-Up Due": { days: 30, title: "Review final follow-up" }
+  }[opportunity.stage];
+  if (!schedule) return;
+  const dueDate = opportunityDateAfter(schedule.days);
+  const { data: existing, error: findError } = await supabase
+    .from("agent_work_queue")
+    .select("id")
+    .eq("linked_opportunity_id", opportunity.id)
+    .eq("task_title", `${opportunity.assigned_agent || "Mia"}: ${schedule.title}`)
+    .neq("status", "Cancelled")
+    .limit(1);
+  if (findError) throw findError;
+  if (existing?.length) return;
+  const { error } = await supabase.from("agent_work_queue").insert({
+    linked_contact_id: opportunity.contact_id || null,
+    linked_organisation_id: opportunity.organisation_id || null,
+    linked_opportunity_id: opportunity.id,
+    prospect_id: opportunity.prospect_id || null,
+    task_title: `${opportunity.assigned_agent || "Mia"}: ${schedule.title}`,
+    task_description: `Review the ${schedule.days}-day opportunity follow-up. Prepare a response for approval if contact is appropriate.`,
+    assigned_agent: opportunity.assigned_agent || "Mia",
+    category: "Follow-Up Required",
+    organisation_type: "Other",
+    priority: opportunity.is_hot ? "High" : "Medium",
+    due_date: dueDate,
+    status: "New",
+    activity_history: [{ action: "stage_follow_up_task_created", stage: opportunity.stage, recorded_at: new Date().toISOString() }]
+  });
+  if (error) throw error;
+  await supabase.from("opportunities").update({
+    next_action: schedule.title,
+    next_action_due: dueDate,
+    updated_at: new Date().toISOString()
+  }).eq("id", opportunity.id);
 }
 
 async function createOpportunityMiaDraft(supabase, payload) {
