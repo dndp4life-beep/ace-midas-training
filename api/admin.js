@@ -76,7 +76,7 @@ const niaContentTypes = ["Awareness post", "Promotional post", "Compliance remin
 const niaTopics = ["PATS training", "MiDAS training", "First Aid training", "refresher training", "training expiry awareness", "certificate record keeping", "compliance support", "group training", "schools", "councils", "SEND transport", "passenger assistants", "minibus drivers", "charities", "community transport providers", "training managers"];
 const niaAudiences = ["schools", "academy trusts", "councils", "SEND transport providers", "charities", "care providers", "community transport providers", "training managers", "passenger assistants", "minibus drivers"];
 const niaDefaultCta = "Visit the training page or contact ACE MiDAS Training to discuss training support.";
-const prospectSelect = "id, organisation_name, website, location, region, sector, likely_training_need, recommended_service, contact_email, phone, decision_maker_name, source_url, notes, outreach_brief, priority, score, relevance_reason, review_status, status, do_not_contact, researched_by, assigned_to, first_contact_sent_at, follow_up_1_scheduled_for, follow_up_2_scheduled_for, last_contacted_at, created_by_agent, created_at, updated_at";
+const prospectSelect = "id, organisation_name, website, location, region, sector, likely_training_need, recommended_service, contact_email, phone, decision_maker_name, source_url, notes, outreach_brief, priority, score, relevance_reason, review_status, status, do_not_contact, researched_by, assigned_to, first_contact_sent_at, follow_up_1_scheduled_for, follow_up_2_scheduled_for, last_contacted_at, created_by_agent, pipeline_stage, opportunity_id, created_at, updated_at";
 const followUpTaskSelect = "id, prospect_id, agent_name, task_type, status, scheduled_for, completed_at, notes, created_at";
 const roryResearchRunSelect = "id, run_type, status, search_theme, provider, provider_task_id, provider_task_url, prospects_found, prospects_saved, duplicates_skipped, errors, started_at, completed_at";
 const miaKnowledgeBaseSelect = "id, category, title, question, approved_answer, keywords, source, status, last_updated, priority, confidence_threshold, created_at, updated_at";
@@ -95,9 +95,13 @@ const ellisActionHistorySelect = "id, user_id, email_id, action_taken, previous_
 const ellisSyncHistorySelect = "id, provider, status, trigger_source, unread_found, imported, duplicates_skipped, errors, started_at, completed_at, created_at";
 const senderDomainIntelligenceSelect = "id, domain, organisation_name, organisation_type, suggested_category, suggested_route, domain_confidence, classification_history, interaction_count, correction_count, last_seen_at, created_at, updated_at";
 const ellisDelegationSelect = "id, email_triage_id, prospect_id, contact_id, organisation_id, sender_name, sender_email, summary, category, priority, confidence_score, recommended_agent, selected_agent, recommended_task_title, recommended_next_action, due_date_suggestion, reason_for_recommendation, handoff_note, review_status, activity_history, created_at, updated_at";
-const agentWorkQueueSelect = "id, delegation_id, linked_email_id, linked_contact_id, linked_organisation_id, prospect_id, task_title, task_description, assigned_agent, category, organisation_type, priority, due_date, status, activity_history, created_at, updated_at";
+const agentWorkQueueSelect = "id, delegation_id, linked_email_id, linked_contact_id, linked_organisation_id, linked_opportunity_id, prospect_id, task_title, task_description, assigned_agent, category, organisation_type, priority, due_date, status, activity_history, created_at, updated_at";
 const ellisUrgentAlertSelect = "id, email_triage_id, prospect_id, organisation_id, alert_type, prospect_name, sender_email, subject, summary, match_reason, recommended_action, status, email_notification_sent, provider_response, sent_at, created_at, updated_at";
 const ellisAlertSettingsSelect = "id, setting_key, alerts_enabled, notify_by_email, notification_email, minimum_prospect_score, warm_high_priority_only, cooldown_minutes, created_at, updated_at";
+const opportunitySelect = "id, organisation_id, contact_id, prospect_id, source, created_by, assigned_agent, stage, estimated_value, confidence, is_hot, hot_reason, next_action, next_action_due, last_contact_date, last_response_date, notes, status, created_at, updated_at";
+const opportunityEmailLinkSelect = "id, opportunity_id, email_triage_id, reply_classification, suggested_stage, analysis_metadata, created_at";
+const opportunityResponseDraftSelect = "id, opportunity_id, email_triage_id, agent_name, draft_subject, draft_body, suggested_stage, suggested_follow_up_date, status, created_at, updated_at";
+const opportunityStages = ["Prospect Found", "Outreach Sent", "Contact Engaged", "Information Requested", "Quote Requested", "Quote Sent", "Follow-Up Due", "Negotiation", "Won", "Lost", "Dormant"];
 const flexibleSelect = "*";
 const recommendedServices = ["First Aid", "PATS", "MiDAS", "Refresher Training", "Compliance Tracking Support", "Mixed Opportunity"];
 const rorySearchThemes = ["First Aid training prospects", "PATS training prospects", "MiDAS training prospects", "refresher training prospects", "schools/trusts", "charities/community organisations", "care providers", "hospitality/businesses"];
@@ -945,6 +949,290 @@ async function getEllisOperations(supabase) {
       metrics: buildEllisCrmMetrics(contacts, organisations, interactions, learningEvents)
     }
   };
+}
+
+function opportunityDateAfter(days) {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function analyseOpportunityReply(email = {}) {
+  const text = `${email.subject || ""} ${email.summary || email.raw_excerpt || ""}`.toLowerCase();
+  const has = (...terms) => terms.some((term) => text.includes(term));
+  const sensitive = has("complaint", "legal", "safeguarding", "payment dispute", "invoice dispute");
+  if (sensitive) return { reply_classification: "complaint", suggested_stage: "Contact Engaged", assigned_agent: "Marvin", is_hot: true, hot_reason: "Sensitive customer message requires Marvin review.", next_action: "Review personally before any response.", due_days: 0 };
+  if (has("unsubscribe", "do not contact", "remove me", "opt out")) return { reply_classification: "unsubscribe", suggested_stage: "Lost", assigned_agent: "Marvin", is_hot: false, hot_reason: "", next_action: "Review do-not-contact request and update the record.", due_days: 0 };
+  if (has("quote", "quotation", "proposal", "cost", "price")) return { reply_classification: "quote request", suggested_stage: "Quote Requested", assigned_agent: "Mia", is_hot: true, hot_reason: "The contact requested pricing or a quote.", next_action: "Prepare a quote response for review.", due_days: 1 };
+  if (has("meeting", "call", "speak", "appointment")) return { reply_classification: "meeting request", suggested_stage: "Contact Engaged", assigned_agent: "Mia", is_hot: true, hot_reason: "The contact requested a conversation.", next_action: "Prepare a meeting follow-up for review.", due_days: 1 };
+  if (has("interested", "tell me more", "more information", "details", "how do we", "can you help")) return { reply_classification: "interested", suggested_stage: "Information Requested", assigned_agent: "Mia", is_hot: true, hot_reason: "The contact asked for more information.", next_action: "Prepare a helpful information response for review.", due_days: 2 };
+  if (has("out of office", "automatic reply", "auto-reply", "away from the office")) return { reply_classification: "out of office", suggested_stage: "Follow-Up Due", assigned_agent: "Mia", is_hot: false, hot_reason: "", next_action: "Schedule a follow-up after the contact returns.", due_days: 7 };
+  if (has("not interested", "no thanks", "not relevant")) return { reply_classification: "not interested", suggested_stage: "Lost", assigned_agent: "Mia", is_hot: false, hot_reason: "", next_action: "Review the response and mark the opportunity lost if appropriate.", due_days: 0 };
+  return { reply_classification: "other", suggested_stage: "Contact Engaged", assigned_agent: "Mia", is_hot: ["Council / Local Authority", "School / Academy Trust"].includes(email.category), hot_reason: ["Council / Local Authority", "School / Academy Trust"].includes(email.category) ? "Council, school or academy-trust enquiry." : "", next_action: "Review the message and prepare the next step.", due_days: 3 };
+}
+
+function stageRank(stage) {
+  return opportunityStages.indexOf(stage);
+}
+
+function buildOpportunityDraft(opportunity = {}, email = {}, analysis = {}) {
+  const subject = email.subject ? `Re: ${email.subject}` : "Re: your ACE MiDAS Training enquiry";
+  const organisation = opportunity.organisation_name || opportunity.prospect_name || "your organisation";
+  const body = `Hello,
+
+Thank you for getting in touch with ACE MiDAS Training.
+
+We would be happy to help ${organisation} with your enquiry. ${analysis.reply_classification === "quote request" ? "We can prepare the most suitable training option once the course requirement, number of participants and location have been reviewed." : "We can provide further information and help identify the most suitable next step."}
+
+Please review the details below before this draft is sent and add any information that would be useful for the customer.
+
+Kind regards,
+Mia
+Outreach Coordinator
+ACE MiDAS Training`;
+  return { subject, body };
+}
+
+async function findOpportunityForEmail(supabase, email, opportunities, contacts, prospects) {
+  const sender = String(email.sender_email || "").trim().toLowerCase();
+  const contact = contacts.find((item) => String(item.email_address || "").trim().toLowerCase() === sender);
+  const prospect = prospects.find((item) => String(item.contact_email || "").trim().toLowerCase() === sender);
+  const opportunity = opportunities.find((item) => item.contact_id === contact?.id || item.prospect_id === prospect?.id);
+  return { opportunity, contact, prospect };
+}
+
+async function ensureOpportunityTask(supabase, opportunity, email, analysis) {
+  if (!opportunity?.id || !email?.id || !analysis?.next_action) return;
+  const { data: existing, error: findError } = await supabase
+    .from("agent_work_queue")
+    .select("id")
+    .eq("linked_opportunity_id", opportunity.id)
+    .eq("linked_email_id", email.id)
+    .limit(1);
+  if (findError) throw findError;
+  if (existing?.length) return;
+  const { error } = await supabase.from("agent_work_queue").insert({
+    linked_email_id: email.id,
+    linked_contact_id: opportunity.contact_id || null,
+    linked_organisation_id: opportunity.organisation_id || null,
+    linked_opportunity_id: opportunity.id,
+    prospect_id: opportunity.prospect_id || null,
+    task_title: `${analysis.assigned_agent}: ${analysis.next_action}`.slice(0, 180),
+    task_description: email.summary || email.raw_excerpt || "Review the linked customer email.",
+    assigned_agent: analysis.assigned_agent,
+    category: email.category || "Customer Enquiry",
+    priority: analysis.is_hot ? "High" : email.priority || "Medium",
+    due_date: opportunityDateAfter(analysis.due_days),
+    status: "New",
+    activity_history: [{ action: "opportunity_follow_up_suggested", recorded_at: new Date().toISOString() }]
+  });
+  if (error) throw error;
+}
+
+async function ensureOpportunityIntelligence(supabase) {
+  const [prospectsResult, opportunitiesResult, contactsResult, emailsResult, linksResult] = await Promise.all([
+    supabase.from("prospects").select(prospectSelect).order("created_at", { ascending: false }).limit(500),
+    supabase.from("opportunities").select(opportunitySelect).order("created_at", { ascending: false }).limit(500),
+    supabase.from("crm_contacts").select(crmContactSelect).limit(500),
+    supabase.from("email_triage").select(ellisEmailSelect).not("category", "in", '("Likely Spam","Marketing","Sales Pitch")').order("received_at", { ascending: true }).limit(500),
+    supabase.from("opportunity_email_links").select(opportunityEmailLinkSelect).limit(1000)
+  ]);
+  const initialError = prospectsResult.error || opportunitiesResult.error || contactsResult.error || emailsResult.error || linksResult.error;
+  if (initialError) throw initialError;
+  const prospects = prospectsResult.data || [];
+  const contacts = contactsResult.data || [];
+  const opportunities = [...(opportunitiesResult.data || [])];
+  for (const prospect of prospects) {
+    if (opportunities.some((item) => item.prospect_id === prospect.id)) continue;
+    const stage = prospect.first_contact_sent_at ? "Outreach Sent" : "Prospect Found";
+    const { data, error } = await supabase.from("opportunities").insert({
+      prospect_id: prospect.id,
+      source: "Rory Prospecting Centre",
+      created_by: "Rory",
+      assigned_agent: prospect.assigned_to || "Mia",
+      stage,
+      confidence: Number(prospect.score || 0),
+      next_action: stage === "Outreach Sent" ? "Review for follow-up." : "Review prospect and decide whether outreach is appropriate.",
+      next_action_due: stage === "Outreach Sent" ? opportunityDateAfter(7) : null,
+      last_contact_date: prospect.last_contacted_at || prospect.first_contact_sent_at || null,
+      notes: prospect.outreach_brief || prospect.notes || null
+    }).select(opportunitySelect).single();
+    if (error) throw error;
+    opportunities.push(data);
+    await supabase.from("prospects").update({ opportunity_id: data.id, pipeline_stage: stage, updated_at: new Date().toISOString() }).eq("id", prospect.id);
+  }
+  const linkedEmailIds = new Set((linksResult.data || []).map((item) => item.email_triage_id));
+  for (const email of emailsResult.data || []) {
+    if (linkedEmailIds.has(email.id)) continue;
+    const match = await findOpportunityForEmail(supabase, email, opportunities, contacts, prospects);
+    if (!match.opportunity) continue;
+    const analysis = analyseOpportunityReply(email);
+    const current = match.opportunity;
+    const shouldMove = !["Won", "Lost", "Dormant"].includes(current.stage)
+      && !["Lost", "Dormant"].includes(analysis.suggested_stage)
+      && stageRank(analysis.suggested_stage) > stageRank(current.stage);
+    const updates = {
+      assigned_agent: analysis.assigned_agent,
+      is_hot: Boolean(current.is_hot || analysis.is_hot),
+      hot_reason: analysis.hot_reason || current.hot_reason || null,
+      next_action: analysis.next_action,
+      next_action_due: opportunityDateAfter(analysis.due_days),
+      last_response_date: email.received_at || new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    if (shouldMove) updates.stage = analysis.suggested_stage;
+    const { data: updated, error: updateError } = await supabase.from("opportunities").update(updates).eq("id", current.id).select(opportunitySelect).single();
+    if (updateError) throw updateError;
+    Object.assign(current, updated);
+    const { error: linkError } = await supabase.from("opportunity_email_links").insert({
+      opportunity_id: current.id,
+      email_triage_id: email.id,
+      reply_classification: analysis.reply_classification,
+      suggested_stage: analysis.suggested_stage,
+      analysis_metadata: analysis
+    });
+    if (linkError) throw linkError;
+    await ensureOpportunityTask(supabase, current, email, analysis);
+    linkedEmailIds.add(email.id);
+  }
+}
+
+function buildOpportunityMetrics(opportunities, tasks) {
+  const list = Array.isArray(opportunities) ? opportunities : [];
+  const taskList = Array.isArray(tasks) ? tasks : [];
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    total_open: list.filter((item) => item.status === "open").length,
+    hot: list.filter((item) => item.is_hot).length,
+    follow_ups_due: taskList.filter((item) => item.status !== "Completed" && item.due_date && item.due_date <= today).length,
+    quote_requested: list.filter((item) => item.stage === "Quote Requested").length,
+    estimated_pipeline_value: list.filter((item) => item.status === "open").reduce((sum, item) => sum + Number(item.estimated_value || 0), 0),
+    recent_wins: list.filter((item) => item.status === "won").length,
+    recent_losses: list.filter((item) => item.status === "lost").length
+  };
+}
+
+function buildOpportunityInsights(opportunities, tasks) {
+  const today = Date.now();
+  const list = [];
+  for (const opportunity of opportunities || []) {
+    if (opportunity.is_hot) list.push(`${opportunity.organisation_name || opportunity.prospect_name || "An opportunity"} is marked HOT. ${opportunity.hot_reason || "Review the latest interaction."}`);
+    if (opportunity.next_action_due && new Date(`${opportunity.next_action_due}T00:00:00Z`).getTime() < today && opportunity.status === "open") list.push(`${opportunity.organisation_name || opportunity.prospect_name || "An opportunity"} is overdue: ${opportunity.next_action || "Review the next action."}`);
+  }
+  const overdueTasks = (tasks || []).filter((item) => item.status !== "Completed" && item.due_date && new Date(`${item.due_date}T00:00:00Z`).getTime() < today);
+  if (overdueTasks.length) list.push(`${overdueTasks.length} opportunity follow-up task(s) are overdue.`);
+  return [...new Set(list)].slice(0, 12);
+}
+
+async function getOpportunityManagement(supabase) {
+  await ensureOpportunityIntelligence(supabase);
+  const [opportunitiesResult, linksResult, draftsResult, tasksResult, organisationsResult, contactsResult, prospectsResult] = await Promise.all([
+    supabase.from("opportunities").select(opportunitySelect).order("updated_at", { ascending: false }).limit(500),
+    supabase.from("opportunity_email_links").select(opportunityEmailLinkSelect).order("created_at", { ascending: false }).limit(1000),
+    supabase.from("opportunity_response_drafts").select(opportunityResponseDraftSelect).order("created_at", { ascending: false }).limit(300),
+    supabase.from("agent_work_queue").select(agentWorkQueueSelect).not("linked_opportunity_id", "is", null).order("created_at", { ascending: false }).limit(500),
+    supabase.from("organisations").select("id, name").limit(500),
+    supabase.from("crm_contacts").select("id, full_name, email_address").limit(500),
+    supabase.from("prospects").select("id, organisation_name, contact_email").limit(500)
+  ]);
+  const error = opportunitiesResult.error || linksResult.error || draftsResult.error || tasksResult.error || organisationsResult.error || contactsResult.error || prospectsResult.error;
+  if (error) throw error;
+  const organisations = Object.fromEntries((organisationsResult.data || []).map((item) => [item.id, item]));
+  const contacts = Object.fromEntries((contactsResult.data || []).map((item) => [item.id, item]));
+  const prospects = Object.fromEntries((prospectsResult.data || []).map((item) => [item.id, item]));
+  const opportunities = (opportunitiesResult.data || []).map((item) => ({
+    ...item,
+    organisation_name: organisations[item.organisation_id]?.name || prospects[item.prospect_id]?.organisation_name || "",
+    contact_name: contacts[item.contact_id]?.full_name || "",
+    contact_email: contacts[item.contact_id]?.email_address || prospects[item.prospect_id]?.contact_email || ""
+  }));
+  const tasks = tasksResult.data || [];
+  return { success: true, opportunities, email_links: linksResult.data || [], drafts: draftsResult.data || [], tasks, metrics: buildOpportunityMetrics(opportunities, tasks), insights: buildOpportunityInsights(opportunities, tasks), stages: opportunityStages };
+}
+
+async function updateOpportunity(supabase, payload) {
+  const id = payload?.id;
+  if (!id) throw new Error("Opportunity id is required.");
+  const updates = { updated_at: new Date().toISOString() };
+  if (payload.stage && opportunityStages.includes(payload.stage)) updates.stage = payload.stage;
+  if (payload.assigned_agent) updates.assigned_agent = String(payload.assigned_agent);
+  if (Object.prototype.hasOwnProperty.call(payload, "estimated_value")) updates.estimated_value = Math.max(0, Number(payload.estimated_value || 0));
+  if (Object.prototype.hasOwnProperty.call(payload, "next_action")) updates.next_action = String(payload.next_action || "").trim() || null;
+  if (Object.prototype.hasOwnProperty.call(payload, "next_action_due")) updates.next_action_due = payload.next_action_due || null;
+  if (payload.status && ["open", "won", "lost", "dormant"].includes(payload.status)) updates.status = payload.status;
+  if (Object.prototype.hasOwnProperty.call(payload, "is_hot")) updates.is_hot = Boolean(payload.is_hot);
+  if (updates.stage === "Won") updates.status = "won";
+  if (updates.stage === "Lost") updates.status = "lost";
+  if (updates.stage === "Dormant") updates.status = "dormant";
+  const { data, error } = await supabase.from("opportunities").update(updates).eq("id", id).select(opportunitySelect).single();
+  if (error) throw error;
+  if (data.prospect_id) await supabase.from("prospects").update({ pipeline_stage: data.stage, updated_at: new Date().toISOString() }).eq("id", data.prospect_id);
+  await insertEllisActivity(supabase, { action_type: "opportunity_updated", summary: `Opportunity updated to ${data.stage}.`, metadata: { opportunity_id: id, updates } });
+  return getOpportunityManagement(supabase);
+}
+
+async function createOpportunityFollowUp(supabase, payload) {
+  const opportunityId = payload?.opportunity_id;
+  if (!opportunityId) throw new Error("Opportunity id is required.");
+  const { data: opportunity, error } = await supabase.from("opportunities").select(opportunitySelect).eq("id", opportunityId).single();
+  if (error) throw error;
+  const dueDate = payload.due_date || opportunityDateAfter(opportunity.stage === "Quote Sent" ? 14 : opportunity.stage === "Follow-Up Due" ? 30 : 7);
+  const { error: taskError } = await supabase.from("agent_work_queue").insert({
+    linked_contact_id: opportunity.contact_id || null,
+    linked_organisation_id: opportunity.organisation_id || null,
+    linked_opportunity_id: opportunity.id,
+    prospect_id: opportunity.prospect_id || null,
+    task_title: String(payload.title || `${opportunity.assigned_agent || "Mia"}: follow up opportunity`).trim(),
+    task_description: String(payload.description || opportunity.next_action || "Review and prepare the next follow-up step.").trim(),
+    assigned_agent: opportunity.assigned_agent || "Mia",
+    category: "Follow-Up Required",
+    organisation_type: "Other",
+    priority: opportunity.is_hot ? "High" : "Medium",
+    due_date: dueDate,
+    status: "New",
+    activity_history: [{ action: "manual_opportunity_follow_up_created", recorded_at: new Date().toISOString() }]
+  });
+  if (taskError) throw taskError;
+  await supabase.from("opportunities").update({ next_action: "Follow-up task created for review.", next_action_due: dueDate, updated_at: new Date().toISOString() }).eq("id", opportunity.id);
+  return getOpportunityManagement(supabase);
+}
+
+async function createOpportunityMiaDraft(supabase, payload) {
+  const opportunityId = payload?.opportunity_id;
+  if (!opportunityId) throw new Error("Opportunity id is required.");
+  const { data: opportunity, error } = await supabase.from("opportunities").select(opportunitySelect).eq("id", opportunityId).single();
+  if (error) throw error;
+  const { data: links, error: linksError } = await supabase.from("opportunity_email_links").select(opportunityEmailLinkSelect).eq("opportunity_id", opportunityId).order("created_at", { ascending: false }).limit(1);
+  if (linksError) throw linksError;
+  const link = links?.[0] || null;
+  const { data: email, error: emailError } = link?.email_triage_id ? await supabase.from("email_triage").select(ellisEmailSelect).eq("id", link.email_triage_id).single() : { data: null, error: null };
+  if (emailError) throw emailError;
+  const analysis = link?.analysis_metadata || analyseOpportunityReply(email || {});
+  const draft = buildOpportunityDraft(payload, email || {}, analysis);
+  const { error: draftError } = await supabase.from("opportunity_response_drafts").insert({
+    opportunity_id: opportunityId,
+    email_triage_id: link?.email_triage_id || null,
+    agent_name: "Mia",
+    draft_subject: draft.subject,
+    draft_body: draft.body,
+    suggested_stage: analysis.suggested_stage || opportunity.stage,
+    suggested_follow_up_date: opportunityDateAfter(analysis.due_days ?? 7),
+    status: "draft"
+  });
+  if (draftError) throw draftError;
+  await insertEllisActivity(supabase, { action_type: "mia_opportunity_draft_created", summary: "Mia prepared an opportunity response draft for review.", metadata: { opportunity_id: opportunityId } });
+  return getOpportunityManagement(supabase);
+}
+
+async function updateOpportunityDraft(supabase, payload) {
+  if (!payload?.id) throw new Error("Draft id is required.");
+  const updates = { updated_at: new Date().toISOString() };
+  if (Object.prototype.hasOwnProperty.call(payload, "draft_subject")) updates.draft_subject = String(payload.draft_subject || "").trim();
+  if (Object.prototype.hasOwnProperty.call(payload, "draft_body")) updates.draft_body = String(payload.draft_body || "").trim();
+  if (payload.status && ["draft", "approved", "edited", "rejected"].includes(payload.status)) updates.status = payload.status;
+  const { error } = await supabase.from("opportunity_response_drafts").update(updates).eq("id", payload.id);
+  if (error) throw error;
+  return getOpportunityManagement(supabase);
 }
 
 async function saveEllisEmail(supabase, payload) {
@@ -3957,6 +4245,11 @@ export default async function handler(req, res) {
       "save-ellis-alert-settings": saveEllisAlertSettings,
       "generate-ellis-briefing": generateEllisBriefing,
       "sync-ellis-inbox": syncEllisInbox,
+      "get-opportunity-management": getOpportunityManagement,
+      "update-opportunity": updateOpportunity,
+      "create-opportunity-follow-up": createOpportunityFollowUp,
+      "create-opportunity-mia-draft": createOpportunityMiaDraft,
+      "update-opportunity-draft": updateOpportunityDraft,
       "save-reply-intake": saveReplyIntake,
       "update-reply-approval": updateReplyApproval,
       "send-theo-approved-response": sendTheoApprovedResponse,
