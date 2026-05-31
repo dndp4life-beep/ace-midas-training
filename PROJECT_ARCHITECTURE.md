@@ -179,6 +179,36 @@ Phase 3 uses:
 
 User corrections to category, priority and agent routing are stored as learning events. Undo actions are recorded separately and must not count as positive learning signals. Ellis remains review-first: complaints, legal matters, safeguarding, invoices, payment disputes, compliance concerns and low-confidence classifications must remain under human control.
 
+## Ellis Phase 4 Automation And Security
+
+Ellis Phase 4 adds a continuously operating, approval-first foundation:
+
+- Back Office unlock is validated by `/api/admin-auth`.
+- Successful unlock creates a signed, HttpOnly, Secure, SameSite session cookie.
+- `/api/admin` rejects requests without a valid Admin session.
+- The session payload is role-aware and currently issues the `Admin` role.
+- Future roles are prepared conceptually: `Admin`, `Operations`, `Training Team`, and `Booking Team`.
+- `sync-ellis-inbox` remains read-only and now writes `ellis_sync_history`.
+- Supabase Cron can trigger `sync-ellis-inbox` every 10 minutes after Vault activation.
+- `sender_domain_intelligence` stores domain patterns, confidence, routing suggestions, classification history, and admin corrections.
+- The Ellis Operations Centre shows sync status, recent runs, domain intelligence, and an approval-first Routing Review panel.
+- Enhanced daily briefings include urgent email actions, open follow-ups, relationship insights, and routing recommendations.
+
+Required Vercel secrets:
+
+- `BACK_OFFICE_ADMIN_CODE`
+- `BACK_OFFICE_SESSION_SECRET`
+
+Required Supabase Edge Function secrets remain:
+
+- `ELLIS_SYNC_SECRET`
+- `ELLIS_IMAP_HOST`
+- `ELLIS_IMAP_PORT`
+- `ELLIS_IMAP_USER`
+- `ELLIS_IMAP_PASSWORD`
+
+Supabase Cron activation stores the existing `ELLIS_SYNC_SECRET` value inside Supabase Vault using `private.set_ellis_sync_secret(text)`, then schedules the ten-minute job using `private.schedule_ellis_inbox_cron(text)`. The database cannot read Supabase Edge Function secrets automatically. Do not put mailbox passwords, session secrets, or sync secrets in frontend code.
+
 ## Important Development Rules
 
 - Do not expose secret keys in frontend code.
