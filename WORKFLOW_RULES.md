@@ -299,6 +299,7 @@ Automation is allowed for:
 - Known Rory prospect replies may advance an open opportunity to `Contact Engaged`, `Information Requested`, `Quote Requested`, or `Follow-Up Due`.
 - `Won`, `Lost`, and `Dormant` stages must remain deliberate admin decisions. Ellis must not close opportunities automatically.
 - Follow-up suggestions create internal queue tasks only. They must not auto-send emails.
+- Opportunity-stage follow-up tasks use review-first defaults: 7 days after outreach, 14 days after a quote is sent, and 30 days for a final follow-up review.
 - Mia may prepare an assisted response draft for review. Draft approval does not send an email.
 - Complaints, legal matters, safeguarding concerns, invoice disputes and payment disputes route to Marvin for review.
 - Hot opportunities include recognised prospect replies, quote requests, meeting requests, and council or school enquiries.
