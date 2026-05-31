@@ -2527,28 +2527,6 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     }
   }
 
-  async function syncEllisInbox() {
-    setEllisBusy("sync");
-    try {
-      const { response, result } = await callAdminAction("sync-ellis-inbox");
-      if (!response.ok) {
-        console.error("Ellis inbox sync error:", result);
-        showMessage("error", result.error || "Ellis could not sync the Livemail inbox.");
-        return;
-      }
-      const refreshed = await loadEllisOperations({ quiet: true });
-      const sync = result.sync || {};
-      showMessage("success", `Inbox sync complete: ${sync.imported || 0} imported, ${sync.duplicates_skipped || 0} duplicate(s) skipped.`);
-      return refreshed;
-    } catch (error) {
-      console.error("Ellis inbox sync error:", error);
-      showMessage("error", "Ellis could not sync the Livemail inbox.");
-      return null;
-    } finally {
-      setEllisBusy("");
-    }
-  }
-
   async function syncMiaKnowledgeBase() {
     setMiaKbBusy("sync");
     try {
@@ -2892,6 +2870,10 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   useEffect(() => {
     if (!unlocked || activeTab !== "Ellis Operations Centre") return;
     loadEllisOperations({ quiet: true });
+    const intervalId = window.setInterval(() => {
+      loadEllisOperations({ quiet: true });
+    }, 60000);
+    return () => window.clearInterval(intervalId);
   }, [unlocked, activeTab]);
 
   async function unlockBackOffice(e) {
@@ -5197,8 +5179,6 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                       <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">Review-first inbox intelligence for email triage, daily briefings and follow-up tasks. Ellis recommends actions but never sends, deletes, archives or unsubscribes automatically.</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <button type="button" onClick={() => loadEllisOperations({ quiet: false })} disabled={ellisBusy === "loading"} className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700 disabled:opacity-60">{ellisBusy === "loading" ? "Refreshing..." : "Refresh"}</button>
-                      <button type="button" onClick={syncEllisInbox} disabled={ellisBusy === "sync"} className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800 disabled:opacity-60">{ellisBusy === "sync" ? "Syncing..." : "Sync Livemail Inbox"}</button>
                       <button type="button" onClick={generateEllisBriefing} disabled={ellisBusy === "briefing"} className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-black text-white disabled:opacity-60">{ellisBusy === "briefing" ? "Generating..." : "Generate Daily Briefing"}</button>
                     </div>
                   </div>
@@ -5407,7 +5387,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                       <div className="mt-4 grid gap-3">
                         <div className="flex items-center justify-between rounded-xl bg-emerald-50 p-4"><p className="text-sm font-black">Fasthosts Livemail IMAP SSL/TLS</p><span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800">Read-only sync</span></div>
                         {["Gmail OAuth 2.0 + PKCE", "Microsoft 365 / Outlook OAuth 2.0 + PKCE"].map((provider) => <div key={provider} className="flex items-center justify-between rounded-xl bg-slate-50 p-4"><p className="text-sm font-black">{provider}</p><span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-800">Phase 2 planned</span></div>)}
-                        {safeEllisConnections.length ? <p className="text-xs font-bold text-slate-500">{safeEllisConnections.length} mailbox connection metadata record(s) available. Last synced: {safeEllisConnections[0]?.last_synced_at ? formatDisplayDateTime(safeEllisConnections[0].last_synced_at) : "Not yet synced"}.</p> : <p className="text-xs font-bold text-slate-500">Use Sync Livemail Inbox to verify the secure connection.</p>}
+                        {safeEllisConnections.length ? <p className="text-xs font-bold text-slate-500">{safeEllisConnections.length} mailbox connection metadata record(s) available. Last synced: {safeEllisConnections[0]?.last_synced_at ? formatDisplayDateTime(safeEllisConnections[0].last_synced_at) : "Not yet synced"}.</p> : <p className="text-xs font-bold text-slate-500">Waiting for the first scheduled read-only inbox sync.</p>}
                         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs font-bold text-slate-600">
                           <p>Automatic sync status: {latestEllisSync?.trigger_source === "supabase_cron" ? "Active" : "Awaiting scheduled run"}</p>
                           <p className="mt-1">Last run: {latestEllisSync?.completed_at ? formatDisplayDateTime(latestEllisSync.completed_at) : "No recorded Phase 4 sync yet"}</p>
