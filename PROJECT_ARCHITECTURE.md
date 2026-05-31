@@ -186,6 +186,7 @@ Ellis Phase 4 adds a continuously operating, approval-first foundation:
 - Back Office unlock is validated by `/api/admin-auth`.
 - Successful unlock creates a signed, HttpOnly, Secure, SameSite session cookie.
 - `/api/admin` rejects requests without a valid Admin session.
+- `/api/admin` permits the read-only `get-settings` action without an Admin session so public footer and contact details load from persisted Supabase settings after refresh. All settings writes remain protected.
 - The session payload is role-aware and currently issues the `Admin` role.
 - Future roles are prepared conceptually: `Admin`, `Operations`, `Training Team`, and `Booking Team`.
 - `sync-ellis-inbox` remains read-only and now writes `ellis_sync_history`.
