@@ -34,6 +34,8 @@ const allowedContentImageTypes = new Set(["image/jpeg", "image/png", "image/webp
 const contentDraftSelect = "id, agent_name, content_type, platform, target_audience, title, content, suggested_visual, call_to_action, hashtags, tone, status, topic, image_prompt, visual_style, image_status, image_path, image_file_name, created_at, used_at";
 const emailSender = process.env.EMAIL_FROM || "ACE MiDAS Training <onboarding@resend.dev>";
 const adminSummaryRecipient = process.env.ADMIN_EMAIL || process.env.NOTIFICATION_EMAIL || "info@ace-midas-training.co.uk";
+const agentReplyTo = process.env.AGENT_REPLY_TO || "info@ace-midas-training.co.uk";
+const miaOutreachBcc = process.env.MIA_OUTREACH_BCC || "info@ace-midas-training.co.uk";
 const siteUrl = process.env.SITE_URL || "https://www.ace-midas-training.co.uk";
 const emailLogoUrl = process.env.EMAIL_LOGO_URL || `${siteUrl}/images/logohorizontal.jpg`;
 const theoTrainingPageUrl = "https://www.ace-midas-training.co.uk/training";
@@ -78,7 +80,8 @@ const niaAudiences = ["schools", "academy trusts", "councils", "SEND transport p
 const niaDefaultCta = "Visit the training page or contact ACE MiDAS Training to discuss training support.";
 const prospectSelect = "id, organisation_name, website, location, region, sector, likely_training_need, recommended_service, contact_email, phone, decision_maker_name, source_url, notes, outreach_brief, priority, score, relevance_reason, review_status, status, do_not_contact, researched_by, assigned_to, first_contact_sent_at, follow_up_1_scheduled_for, follow_up_2_scheduled_for, last_contacted_at, created_by_agent, pipeline_stage, opportunity_id, created_at, updated_at";
 const followUpTaskSelect = "id, prospect_id, agent_name, task_type, status, scheduled_for, completed_at, notes, created_at";
-const miaOutreachQueueSelect = "id, prospect_id, outreach_type, recipient_email, email_subject, email_html, status, autosend_enabled, send_attempted_at, sent_at, failure_reason, provider_response, linked_log_id, created_at, updated_at";
+const miaOutreachQueueSelect = "id, prospect_id, outreach_type, recipient_email, email_subject, email_html, status, autosend_enabled, send_attempted_at, sent_at, failure_reason, provider_response, linked_log_id, sender_email, reply_to_email, bcc_emails, resend_email_id, delivery_status, agent_email_outbox_id, created_at, updated_at";
+const agentEmailOutboxSelect = "id, agent_key, agent_name, purpose, recipient_email, sender_email, reply_to_email, bcc_emails, subject, html_body, status, resend_email_id, provider_response, failure_reason, prospect_id, opportunity_id, reply_intake_id, training_record_id, member_id, organisation_id, sent_at, last_checked_at, created_at, updated_at";
 const roryResearchRunSelect = "id, run_type, status, search_theme, provider, provider_task_id, provider_task_url, prospects_found, prospects_saved, duplicates_skipped, errors, started_at, completed_at";
 const miaKnowledgeBaseSelect = "id, category, title, question, approved_answer, keywords, source, status, last_updated, priority, confidence_threshold, created_at, updated_at";
 const miaVisitorQuestionSelect = "id, visitor_question, mia_answer, matched_knowledge_base_entries, confidence_score, was_answered, needs_review, visitor_name, organisation, email, phone, course_interest, number_of_participants, location, preferred_dates, urgency, notes, status, created_at, updated_at";
@@ -213,28 +216,109 @@ function formatUkDate(value) {
   return date.toLocaleDateString("en-GB");
 }
 
-async function sendAgentEmail({ to, subject, html }) {
+function emailList(value) {
+  return [...new Set((Array.isArray(value) ? value : [value]).map((item) => String(item || "").trim()).filter(Boolean))];
+}
+
+async function createAgentEmailOutbox(supabase, details) {
+  if (!supabase) throw new Error("Outbound audit storage is unavailable. Email was not sent.");
+  const identity = getAgentIdentity(details.agentKey || "ellis");
+  const { data, error } = await supabase
+    .from("agent_email_outbox")
+    .insert({
+      agent_key: details.agentKey || "ellis",
+      agent_name: identity.name,
+      purpose: details.purpose || "agent_email",
+      recipient_email: String(details.to || "").trim(),
+      sender_email: emailSender,
+      reply_to_email: details.replyTo || agentReplyTo,
+      bcc_emails: emailList(details.bcc),
+      subject: details.subject,
+      html_body: details.html,
+      status: "prepared",
+      prospect_id: details.prospect_id || null,
+      opportunity_id: details.opportunity_id || null,
+      reply_intake_id: details.reply_intake_id || null,
+      training_record_id: details.training_record_id || null,
+      member_id: details.member_id || null,
+      organisation_id: details.organisation_id || null
+    })
+    .select(agentEmailOutboxSelect)
+    .single();
+  if (error) {
+    console.error("Agent outbox insert error:", error);
+    throw new Error("Outbound audit record could not be created. Email was not sent.");
+  }
+  return data;
+}
+
+async function updateAgentEmailOutbox(supabase, id, patch) {
+  if (!supabase || !id) return null;
+  const { data, error } = await supabase
+    .from("agent_email_outbox")
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select(agentEmailOutboxSelect)
+    .single();
+  if (error) console.error("Agent outbox update error:", error);
+  return error ? null : data;
+}
+
+async function sendAgentEmail({ supabase, agentKey = "ellis", purpose = "agent_email", to, subject, html, replyTo = agentReplyTo, bcc = [], ...links }) {
   if (!process.env.RESEND_API_KEY) throw new Error("Email is not configured. Missing RESEND_API_KEY.");
+  const outbox = await createAgentEmailOutbox(supabase, { agentKey, purpose, to, subject, html, replyTo, bcc, ...links });
+  await updateAgentEmailOutbox(supabase, outbox.id, { status: "sending" });
+  const bccEmails = emailList(bcc);
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ from: emailSender, to: [to], subject, html })
+    body: JSON.stringify({ from: emailSender, to: [to], reply_to: replyTo, bcc: bccEmails.length ? bccEmails : undefined, subject, html })
   });
   const body = await response.text();
-  if (!response.ok) {
-    console.error("Agent Resend error:", { status: response.status, body });
-    throw new Error("Unable to send refresher reminder email.");
-  }
   let parsedBody = null;
   try {
     parsedBody = body ? JSON.parse(body) : null;
   } catch {
     parsedBody = body;
   }
-  return { status: response.status, body: parsedBody };
+  if (!response.ok) {
+    console.error("Agent Resend error:", { status: response.status, body });
+    await updateAgentEmailOutbox(supabase, outbox.id, { status: "failed", failure_reason: safeErrorMessage(parsedBody, "Resend rejected the email."), provider_response: { status: response.status, body: parsedBody } });
+    throw new Error("Unable to send refresher reminder email.");
+  }
+  const resendEmailId = typeof parsedBody === "object" && parsedBody ? parsedBody.id || null : null;
+  const sentAt = new Date().toISOString();
+  await updateAgentEmailOutbox(supabase, outbox.id, { status: "accepted", resend_email_id: resendEmailId, provider_response: { status: response.status, body: parsedBody }, sent_at: sentAt });
+  return { status: response.status, body: parsedBody, resendEmailId, outboxId: outbox.id, deliveryStatus: "accepted", sender: emailSender, replyTo, bcc: bccEmails, sentAt };
+}
+
+async function retrieveResendEmail(resendEmailId) {
+  if (!process.env.RESEND_API_KEY || !resendEmailId) return null;
+  const response = await fetch(`https://api.resend.com/emails/${encodeURIComponent(resendEmailId)}`, {
+    headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}` }
+  });
+  const text = await response.text();
+  let body = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = text;
+  }
+  if (!response.ok) throw new Error(safeErrorMessage(body, "Could not retrieve Resend email status."));
+  return { status: response.status, body };
+}
+
+function resendDeliveryStatus(providerBody, fallback = "accepted") {
+  const value = String(providerBody?.last_event || providerBody?.status || fallback || "accepted").toLowerCase();
+  if (value.includes("deliver")) return "delivered";
+  if (value.includes("delay")) return "delivery_delayed";
+  if (value.includes("bounce")) return "bounced";
+  if (value.includes("complain")) return "complained";
+  if (value.includes("fail")) return "failed";
+  return "accepted";
 }
 
 async function insertAgentLog(supabase, log) {
@@ -339,7 +423,7 @@ async function ensureCourses(supabase) {
 
 async function getTrainingCompliance(supabase) {
   const courses = await ensureCourses(supabase);
-  const [organisationsResult, membersResult, recordsResult, evidenceResult, remindersResult, reminderLogsResult, agentLogsResult, prospectsResult, followUpsResult, roryRunsResult, repliesResult, inboundResult, contentDraftsResult, miaOutreachResult] = await Promise.all([
+  const [organisationsResult, membersResult, recordsResult, evidenceResult, remindersResult, reminderLogsResult, agentLogsResult, prospectsResult, followUpsResult, roryRunsResult, repliesResult, inboundResult, contentDraftsResult, miaOutreachResult, agentEmailOutboxResult] = await Promise.all([
     supabase.from("organisations").select("id, name, contact_name, contact_email, phone, created_at").order("name", { ascending: true }),
     supabase.from("members").select("id, organisation_id, full_name, email, role, created_at").order("full_name", { ascending: true }),
     supabase.from("training_records").select("id, member_id, course_id, date_completed, expiry_date, status, created_at").order("expiry_date", { ascending: true }),
@@ -353,7 +437,8 @@ async function getTrainingCompliance(supabase) {
     supabase.from("reply_intake").select("id, organisation_id, member_id, training_record_id, contact_name, contact_email, message, classification, requested_action, assigned_agent, approval_required, approval_status, requested_course, attendees, location, preferred_dates, urgency, approved_dates, approved_availability_wording, approved_price_payment_instruction, theo_notes, draft_response, notes, created_at, updated_at").order("created_at", { ascending: false }).limit(100),
     supabase.from("inbound_messages").select("id, source, from_name, from_email, organisation, subject, message_body, classification, assigned_agent, status, action_taken, approval_required, created_at, updated_at").order("created_at", { ascending: false }).limit(100),
     supabase.from("content_drafts").select(contentDraftSelect).order("created_at", { ascending: false }).limit(100),
-    supabase.from("mia_outreach_queue").select(miaOutreachQueueSelect).order("updated_at", { ascending: false }).limit(500)
+    supabase.from("mia_outreach_queue").select(miaOutreachQueueSelect).order("updated_at", { ascending: false }).limit(500),
+    supabase.from("agent_email_outbox").select(agentEmailOutboxSelect).order("created_at", { ascending: false }).limit(500)
   ]);
   const error = organisationsResult.error || membersResult.error || recordsResult.error;
   if (error) throw error;
@@ -361,6 +446,7 @@ async function getTrainingCompliance(supabase) {
   if (followUpsResult.error) console.error("Follow-up tasks load error:", followUpsResult.error);
   if (roryRunsResult.error) console.error("Rory research runs load error:", roryRunsResult.error);
   if (miaOutreachResult.error) console.error("Mia outreach queue load error:", miaOutreachResult.error);
+  if (agentEmailOutboxResult.error) console.error("Agent email outbox load error:", agentEmailOutboxResult.error);
   const contentDrafts = contentDraftsResult.error ? [] : await Promise.all((contentDraftsResult.data || []).map(async (draft) => {
     if (!draft.image_path) return { ...draft, image_url: "" };
     const { data } = await supabase.storage.from(contentAssetBucket).createSignedUrl(draft.image_path, 3600);
@@ -383,6 +469,7 @@ async function getTrainingCompliance(supabase) {
     inboundMessages: inboundResult.error ? [] : inboundResult.data || [],
     contentDrafts,
     miaOutreachQueue: miaOutreachResult.error ? [] : miaOutreachResult.data || [],
+    agentEmailOutbox: agentEmailOutboxResult.error ? [] : agentEmailOutboxResult.data || [],
     counts: {
       organisations: organisationsResult.data?.length || 0,
       members: membersResult.data?.length || 0,
@@ -398,7 +485,8 @@ async function getTrainingCompliance(supabase) {
       replies: repliesResult.error ? 0 : repliesResult.data?.length || 0,
       inboundMessages: inboundResult.error ? 0 : inboundResult.data?.length || 0,
       contentDrafts: contentDraftsResult.error ? 0 : contentDraftsResult.data?.length || 0,
-      miaOutreachQueue: miaOutreachResult.error ? 0 : miaOutreachResult.data?.length || 0
+      miaOutreachQueue: miaOutreachResult.error ? 0 : miaOutreachResult.data?.length || 0,
+      agentEmailOutbox: agentEmailOutboxResult.error ? 0 : agentEmailOutboxResult.data?.length || 0
     }
   };
 }
@@ -1276,9 +1364,14 @@ async function processMiaEligibleCommunications(supabase) {
     }
     try {
       const providerResponse = await sendAgentEmail({
+        supabase,
+        agentKey: "mia",
+        purpose: "trusted_mia_response",
         to: recipient,
         subject: draft.draft_subject,
-        html: String(draft.draft_body || "").replace(/\n/g, "<br />")
+        html: String(draft.draft_body || "").replace(/\n/g, "<br />"),
+        prospect_id: opportunity.prospect_id || null,
+        opportunity_id: opportunity.id
       });
       await supabase.from("opportunity_response_drafts").update({ status: "sent", updated_at: new Date().toISOString() }).eq("id", draft.id);
       await supabase.from("mia_communication_memory").update({ approval_outcome: "sent", final_subject: draft.draft_subject, final_body: draft.draft_body, updated_at: new Date().toISOString(), metadata: { provider_response: providerResponse, trusted_send: true } }).eq("response_draft_id", draft.id);
@@ -3545,7 +3638,7 @@ async function sendTheoApprovedResponse(supabase, payload) {
   if (!["approved", "needs_more_info"].includes(reply.approval_status)) throw new Error("Theo response must be approved or marked needs more information before sending.");
   const draft = reply.draft_response || buildTheoDraft(reply, reply);
   const html = `<div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0f172a; max-width: 680px; margin: 0 auto;">${draft.split("\n").map((line) => line ? `<p>${line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>` : "<br />").join("")}</div>`;
-  const providerResponse = await sendAgentEmail({ to: reply.contact_email, subject: "ACE MiDAS Training booking enquiry", html });
+  const providerResponse = await sendAgentEmail({ supabase, agentKey: "theo", purpose: "approved_booking_response", to: reply.contact_email, subject: "ACE MiDAS Training booking enquiry", html, reply_intake_id: reply.id, organisation_id: reply.organisation_id, member_id: reply.member_id, training_record_id: reply.training_record_id });
   const metadata = { reply_id: reply.id, organisation_id: reply.organisation_id, member_id: reply.member_id, training_record_id: reply.training_record_id, provider_response: providerResponse };
   await supabase.from("reply_intake").update({ approval_status: "sent", updated_at: new Date().toISOString() }).eq("id", id);
   await insertAgentLog(supabase, {
@@ -3776,7 +3869,7 @@ async function processMiaOutreachQueueItem(supabase, queue, prospect) {
   const sending = await upsertMiaOutreachQueue(supabase, { ...queue, prospect_id: prospect.id, outreach_type: queue.outreach_type || "initial", recipient_email: email, email_subject: subject, email_html: html, status: "sending", send_attempted_at: now, failure_reason: null, autosend_enabled: miaOutreachAutosendEnabled });
   let providerResponse;
   try {
-    providerResponse = await sendAgentEmail({ to: email, subject, html });
+    providerResponse = await sendAgentEmail({ supabase, agentKey: "mia", purpose: "prospect_outreach", to: email, subject, html, bcc: [miaOutreachBcc], prospect_id: prospect.id });
   } catch (error) {
     const failureReason = error.message || "Outreach email could not be sent.";
     const failed = await upsertMiaOutreachQueue(supabase, { ...sending, status: "failed", failure_reason: failureReason });
@@ -3784,7 +3877,7 @@ async function processMiaOutreachQueueItem(supabase, queue, prospect) {
     await logMiaOutreachStatus(supabase, prospect, failed, `${getAgentIdentity("mia").name} could not send outreach to ${prospect.organisation_name}: ${failureReason}`, "failed", true, { error: failureReason });
     return failed;
   }
-  const sent = await upsertMiaOutreachQueue(supabase, { ...sending, status: "sent", sent_at: now, failure_reason: null, provider_response: providerResponse || {} });
+  const sent = await upsertMiaOutreachQueue(supabase, { ...sending, status: "sent", sent_at: providerResponse.sentAt || now, failure_reason: null, provider_response: providerResponse || {}, sender_email: providerResponse.sender, reply_to_email: providerResponse.replyTo, bcc_emails: providerResponse.bcc, resend_email_id: providerResponse.resendEmailId, delivery_status: providerResponse.deliveryStatus, agent_email_outbox_id: providerResponse.outboxId });
   try {
     const sequence = await scheduleMiaProspectFollowUps(supabase, prospect);
     const { error: updateError } = await supabase.from("prospects").update({
@@ -3839,6 +3932,9 @@ async function sendProspectToMia(supabase, payload) {
     recipient_email: String(prospect.contact_email || "").trim(),
     email_subject: subject,
     email_html: html,
+    sender_email: emailSender,
+    reply_to_email: agentReplyTo,
+    bcc_emails: emailList(miaOutreachBcc),
     status: "drafted",
     autosend_enabled: miaOutreachAutosendEnabled,
     failure_reason: null
@@ -3903,6 +3999,65 @@ async function sendMiaOutreachQueueItem(supabase, payload) {
   const result = await processMiaOutreachQueueItem(supabase, queued, prospect);
   const compliance = await getTrainingCompliance(supabase);
   return { success: true, emailStatus: result.status, prospect: compliance.prospects.find((item) => item.id === prospect.id) || prospect, prospects: compliance.prospects, followUps: compliance.followUps, agentLogs: compliance.agentLogs, miaOutreachQueue: compliance.miaOutreachQueue };
+}
+
+async function getMiaOutreachEmailDetails(supabase, payload) {
+  const id = String(payload?.id || "");
+  if (!id) throw new Error("Mia outreach queue item ID is required.");
+  const { data: queue, error } = await supabase.from("mia_outreach_queue").select(miaOutreachQueueSelect).eq("id", id).maybeSingle();
+  if (error) throw error;
+  if (!queue) throw new Error("Mia outreach queue item was not found.");
+  let outbox = null;
+  if (queue.agent_email_outbox_id) {
+    const { data, error: outboxError } = await supabase.from("agent_email_outbox").select(agentEmailOutboxSelect).eq("id", queue.agent_email_outbox_id).maybeSingle();
+    if (outboxError) throw outboxError;
+    outbox = data;
+  }
+  const resendEmailId = outbox?.resend_email_id || queue.resend_email_id || "";
+  if (resendEmailId) {
+    const provider = await retrieveResendEmail(resendEmailId);
+    const deliveryStatus = resendDeliveryStatus(provider?.body, outbox?.status || queue.delivery_status);
+    if (outbox?.id) await updateAgentEmailOutbox(supabase, outbox.id, { status: deliveryStatus, provider_response: provider || {}, last_checked_at: new Date().toISOString() });
+    await supabase.from("mia_outreach_queue").update({ delivery_status: deliveryStatus, provider_response: provider || queue.provider_response || {}, updated_at: new Date().toISOString() }).eq("id", queue.id);
+    queue.delivery_status = deliveryStatus;
+    queue.provider_response = provider || queue.provider_response;
+  }
+  const html = outbox?.html_body || queue.email_html || "";
+  if (!html) throw new Error("This legacy outreach record predates exact email storage. Use the Resend dashboard to inspect any retained provider copy.");
+  return {
+    success: true,
+    email: {
+      id: outbox?.id || queue.id,
+      prospect_id: queue.prospect_id,
+      agent_name: outbox?.agent_name || "Mia",
+      purpose: outbox?.purpose || "prospect_outreach",
+      to: outbox?.recipient_email || queue.recipient_email,
+      sender: outbox?.sender_email || queue.sender_email || emailSender,
+      replyTo: outbox?.reply_to_email || queue.reply_to_email || agentReplyTo,
+      bcc: outbox?.bcc_emails || queue.bcc_emails || [],
+      subject: outbox?.subject || queue.email_subject,
+      html,
+      deliveryStatus: outbox?.status || queue.delivery_status || queue.status,
+      resendEmailId,
+      sentAt: outbox?.sent_at || queue.sent_at,
+      providerResponse: outbox?.provider_response || queue.provider_response || {}
+    }
+  };
+}
+
+async function getAgentEmailDetails(supabase, payload) {
+  const id = String(payload?.id || "");
+  if (!id) throw new Error("Outbound email audit ID is required.");
+  const { data: outbox, error } = await supabase.from("agent_email_outbox").select(agentEmailOutboxSelect).eq("id", id).maybeSingle();
+  if (error) throw error;
+  if (!outbox) throw new Error("Outbound email audit record was not found.");
+  let refreshed = outbox;
+  if (outbox.resend_email_id) {
+    const provider = await retrieveResendEmail(outbox.resend_email_id);
+    const deliveryStatus = resendDeliveryStatus(provider?.body, outbox.status);
+    refreshed = await updateAgentEmailOutbox(supabase, outbox.id, { status: deliveryStatus, provider_response: provider || {}, last_checked_at: new Date().toISOString() }) || outbox;
+  }
+  return { success: true, email: refreshed };
 }
 
 async function previewProspectMiaEmail(supabase, payload) {
@@ -4787,7 +4942,7 @@ async function sendAvaSummary(supabase, payload) {
   const compliance = await getTrainingCompliance(supabase);
   const summary = buildAvaComplianceSummary(compliance);
   const subject = type === "weekly" ? "Ava weekly compliance summary" : "Ava end-of-day compliance summary";
-  const providerResponse = await sendAgentEmail({ to: adminSummaryRecipient, subject, html: avaSummaryHtml(type, summary) });
+  const providerResponse = await sendAgentEmail({ supabase, agentKey: "ava", purpose: `${type}_compliance_summary`, to: adminSummaryRecipient, subject, html: avaSummaryHtml(type, summary) });
   const log = await insertAgentLog(supabase, {
     agent_key: "ava",
     agent_name: ava.name,
@@ -4927,7 +5082,7 @@ async function runAvaMiaWorkflow(supabase) {
       </div>
     `;
     try {
-      const providerResponse = await sendAgentEmail({ to: member.email, subject, html });
+      const providerResponse = await sendAgentEmail({ supabase, agentKey: "mia", purpose: "refresher_reminder", to: member.email, subject, html, bcc: [miaOutreachBcc], training_record_id: record.id, member_id: member.id, organisation_id: member.organisation_id });
       const metadata = { training_record_id: record.id, member_id: member.id, organisation_id: member.organisation_id, course_id: record.course_id, reminder_window: "30_days", provider_response: providerResponse, agent_title: mia.title, agent_tone: mia.tone, signature: mia.signature };
       const miaLog = await insertAgentLog(supabase, {
         agent_key: "mia",
@@ -5197,6 +5352,8 @@ export default async function handler(req, res) {
       "send-prospect-to-mia": sendProspectToMia,
       "process-mia-outreach-queue": processQueuedMiaOutreach,
       "send-mia-outreach-queue-item": sendMiaOutreachQueueItem,
+      "get-mia-outreach-email-details": getMiaOutreachEmailDetails,
+      "get-agent-email-details": getAgentEmailDetails,
       "preview-prospect-mia-email": previewProspectMiaEmail,
       "mark-prospect-do-not-contact": markProspectDoNotContact,
       "delete-prospect": deleteProspect,

@@ -978,6 +978,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const [prospects, setProspects] = useState([]);
   const [followUpTasks, setFollowUpTasks] = useState([]);
   const [miaOutreachQueue, setMiaOutreachQueue] = useState([]);
+  const [agentEmailOutbox, setAgentEmailOutbox] = useState([]);
   const [roryResearchRuns, setRoryResearchRuns] = useState([]);
   const [rorySearchTheme, setRorySearchTheme] = useState(RORY_SEARCH_THEME_OPTIONS[0]);
   const [roryLocationFocus, setRoryLocationFocus] = useState("London");
@@ -1229,6 +1230,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const safeProspects = asArray(prospects).map((prospect) => asObject(prospect));
   const safeFollowUpTasks = asArray(followUpTasks).map((task) => asObject(task));
   const safeMiaOutreachQueue = asArray(miaOutreachQueue).map((item) => ({ ...asObject(item), provider_response: asObject(asObject(item).provider_response) }));
+  const safeAgentEmailOutbox = asArray(agentEmailOutbox).map((item) => ({ ...asObject(item), provider_response: asObject(asObject(item).provider_response), bcc_emails: asArray(asObject(item).bcc_emails) }));
   const safeRoryResearchRuns = asArray(roryResearchRuns).map((run) => asObject(run));
   const safeContentDrafts = asArray(contentDrafts).map((draft) => asObject(draft));
   const safeMiaKbEntries = asArray(miaKbEntries).map((entry) => asObject(entry));
@@ -1680,6 +1682,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
       setFollowUpTasks(result.followUps || followUpTasks);
       setAgentActivityLogs(result.agentLogs || agentActivityLogs);
       setMiaOutreachQueue(result.miaOutreachQueue || miaOutreachQueue);
+      await loadTrainingComplianceData({ quiet: true });
       const statusText = {
         sent: "Mia sent the outreach email and scheduled follow-ups.",
         awaiting_review: "Mia drafted the outreach email. It is awaiting review.",
@@ -1732,6 +1735,47 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     });
   }
 
+  async function viewExactMiaOutreachEmail(item) {
+    setMiaEmailPreviewBusy(item.id);
+    try {
+      const { response, result } = await callAdminAction("get-mia-outreach-email-details", { id: item.id });
+      if (!response.ok) {
+        console.error("Mia exact email audit error:", result);
+        showMessage("error", result.error || "Could not load the exact outbound email.");
+        return;
+      }
+      setMiaEmailPreview({ ...result.email, exactSentEmail: true, prospect: safeProspects.find((candidate) => candidate.id === item.prospect_id) || {} });
+      await loadTrainingComplianceData({ quiet: true });
+      showMessage("success", "Exact outbound email and latest Resend status loaded.");
+    } catch (error) {
+      console.error("Mia exact email audit error:", error);
+      showMessage("error", "Could not load the exact outbound email.");
+    } finally {
+      setMiaEmailPreviewBusy("");
+    }
+  }
+
+  async function viewAgentEmailAudit(item) {
+    setMiaEmailPreviewBusy(item.id);
+    try {
+      const { response, result } = await callAdminAction("get-agent-email-details", { id: item.id });
+      if (!response.ok) {
+        console.error("Agent email audit error:", result);
+        showMessage("error", result.error || "Could not load the audited email.");
+        return;
+      }
+      const email = result.email || {};
+      setMiaEmailPreview({ ...email, to: email.recipient_email, sender: email.sender_email, replyTo: email.reply_to_email, bcc: email.bcc_emails, subject: email.subject, html: email.html_body, deliveryStatus: email.status, exactSentEmail: true, agentAudit: true });
+      await loadTrainingComplianceData({ quiet: true });
+      showMessage("success", "Audited email and latest Resend status loaded.");
+    } catch (error) {
+      console.error("Agent email audit error:", error);
+      showMessage("error", "Could not load the audited email.");
+    } finally {
+      setMiaEmailPreviewBusy("");
+    }
+  }
+
   async function approveAndSendQueuedMiaOutreach(item) {
     const prospect = safeProspects.find((candidate) => candidate.id === item.prospect_id) || {};
     if (!window.confirm(`Send Mia's prepared outreach email to ${safeText(prospect.organisation_name, item.recipient_email || "this prospect")}?`)) return;
@@ -1747,6 +1791,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
       setFollowUpTasks(result.followUps || followUpTasks);
       setAgentActivityLogs(result.agentLogs || agentActivityLogs);
       setMiaOutreachQueue(result.miaOutreachQueue || miaOutreachQueue);
+      await loadTrainingComplianceData({ quiet: true });
       showMessage(result.emailStatus === "sent" ? "success" : "error", result.emailStatus === "sent" ? "Mia sent the outreach email and scheduled follow-ups." : `Mia outreach status: ${miaOutreachStatusLabel(result.emailStatus)}.`);
     } catch (error) {
       console.error("Mia approved outreach send error:", error);
@@ -1790,11 +1835,15 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
             <div className="mt-3 grid gap-2 text-xs font-semibold text-slate-600 md:grid-cols-2 xl:grid-cols-4">
               <p><span className="font-black text-slate-900">What happens next:</span> {nextStep}</p>
               <p><span className="font-black text-slate-900">Sent time:</span> {item.sent_at ? formatDisplayDateTime(item.sent_at) : "Not sent"}</p>
-              <p><span className="font-black text-slate-900">Delivery evidence:</span> {isLegacyRecord ? "Legacy timestamp only. Resend response was not stored." : item.status === "sent" ? "Resend response stored." : "No confirmed send yet."}</p>
+              <p><span className="font-black text-slate-900">Delivery status:</span> {isLegacyRecord ? "Legacy timestamp only" : safeText(item.delivery_status, item.status === "sent" ? "Accepted by Resend" : "Not sent")}</p>
+              <p><span className="font-black text-slate-900">Reply destination:</span> {safeText(item.reply_to_email, isLegacyRecord ? "Not recorded by legacy workflow" : "info@ace-midas-training.co.uk")}</p>
+              <p><span className="font-black text-slate-900">Sender:</span> {safeText(item.sender_email, isLegacyRecord ? "Not recorded by legacy workflow" : "Configured EMAIL_FROM")}</p>
+              <p><span className="font-black text-slate-900">Resend email ID:</span> {safeText(item.resend_email_id, isLegacyRecord ? "Not stored by legacy workflow" : "Not assigned yet")}</p>
               <p><span className="font-black text-slate-900">Failure / skip reason:</span> {safeText(item.failure_reason, "None")}</p>
             </div>
             <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
               <button type="button" onClick={() => previewQueuedMiaOutreach(item)} disabled={miaEmailPreviewBusy === prospect.id} className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs font-black text-blue-800 disabled:opacity-50">{miaEmailPreviewBusy === prospect.id ? "Preparing Preview..." : isLegacyRecord ? "Preview Current Mia Email" : "Preview Prepared Email"}</button>
+              {item.agent_email_outbox_id || (!isLegacyRecord && item.email_html) ? <button type="button" onClick={() => viewExactMiaOutreachEmail(item)} disabled={miaEmailPreviewBusy === item.id} className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-black text-emerald-800 disabled:opacity-50">{miaEmailPreviewBusy === item.id ? "Loading Audit..." : item.status === "sent" ? "View Exact Sent Email" : "View Audit Record"}</button> : null}
               {canApproveAndSend ? <button type="button" onClick={() => approveAndSendQueuedMiaOutreach(item)} disabled={isSaving || item.status === "sending"} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-50">Approve &amp; Send Email</button> : null}
             </div>
           </article>;
@@ -2535,6 +2584,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
       setProspects(result.prospects || []);
       setFollowUpTasks(result.followUps || []);
       setMiaOutreachQueue(result.miaOutreachQueue || []);
+      setAgentEmailOutbox(result.agentEmailOutbox || []);
       setRoryResearchRuns(result.roryRuns || []);
       setContentDrafts(result.contentDrafts || []);
       setInboundMessages(result.inboundMessages || []);
@@ -5482,6 +5532,32 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                 ) : null}
 
                 {activeTab === "AI Operations" ? <>
+                <section className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Operational memory</p>
+                    <h3 className="mt-1 text-xl font-black">Agent Email Audit Trail</h3>
+                    <p className="mt-2 text-sm font-semibold text-slate-600">Every new audited send stores the exact message, recipient, sender, reply destination, Resend ID and latest delivery state. Use this evidence when reviewing or correcting agent behaviour.</p>
+                  </div>
+                  <div className="mt-5 grid gap-3">
+                    {safeAgentEmailOutbox.length ? safeAgentEmailOutbox.slice(0, 50).map((item) => <article key={item.id} className="rounded-xl border border-emerald-100 bg-white p-4">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="min-w-0">
+                          <p className="font-black">{safeText(item.agent_name, "Unknown agent")} <span className="text-xs font-bold text-slate-500">- {safeText(item.purpose, "Agent email")}</span></p>
+                          <p className="mt-1 text-sm font-black text-slate-800">{safeText(item.subject, "No subject")}</p>
+                          <p className="mt-1 break-all text-xs font-bold text-slate-600">To: {safeText(item.recipient_email, "Not recorded")} | Reply to: {safeText(item.reply_to_email, "Not recorded")}</p>
+                        </div>
+                        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${item.status === "delivered" || item.status === "accepted" ? "bg-emerald-100 text-emerald-800" : item.status === "failed" || item.status === "bounced" || item.status === "complained" ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800"}`}>{safeText(item.status, "Pending")}</span>
+                      </div>
+                      <div className="mt-3 grid gap-2 text-xs font-semibold text-slate-600 md:grid-cols-3">
+                        <p><span className="font-black text-slate-900">Sent:</span> {item.sent_at ? formatDisplayDateTime(item.sent_at) : "Not sent"}</p>
+                        <p><span className="font-black text-slate-900">Resend ID:</span> {safeText(item.resend_email_id, "Not assigned yet")}</p>
+                        <p><span className="font-black text-slate-900">BCC:</span> {item.bcc_emails.length ? item.bcc_emails.join(", ") : "None"}</p>
+                      </div>
+                      <button type="button" onClick={() => viewAgentEmailAudit(item)} disabled={miaEmailPreviewBusy === item.id} className="mt-3 rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-black text-emerald-800 disabled:opacity-50">{miaEmailPreviewBusy === item.id ? "Loading Audit..." : "View Exact Email & Refresh Status"}</button>
+                    </article>) : <p className="rounded-xl bg-white p-4 text-sm font-bold text-slate-600">No audited agent emails yet. New sends will appear here before they are counted as complete.</p>}
+                  </div>
+                </section>
+
                 <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
@@ -5801,16 +5877,21 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                       <section className="max-h-[90vh] w-full max-w-4xl overflow-auto rounded-2xl bg-white p-5 shadow-2xl">
                         <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-start sm:justify-between">
                           <div>
-                            <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Preview only</p>
-                            <h4 className="mt-1 text-xl font-black">Mia Email Preview</h4>
-                            <p className="mt-1 text-sm font-semibold text-slate-600">This does not send an email. It shows the current message Mia would prepare for this prospect.</p>
+                            <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">{miaEmailPreview.exactSentEmail ? "Audited outbound email" : "Preview only"}</p>
+                            <h4 className="mt-1 text-xl font-black">{miaEmailPreview.exactSentEmail ? "Exact Agent Email Record" : "Mia Email Preview"}</h4>
+                            <p className="mt-1 text-sm font-semibold text-slate-600">{miaEmailPreview.exactSentEmail ? "This is the exact stored outbound email. The delivery state is refreshed from Resend when a provider ID is available." : "This does not send an email. It shows the current message Mia would prepare for this prospect."}</p>
                           </div>
                           <button type="button" onClick={() => setMiaEmailPreview(null)} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-700">Close Preview</button>
                         </div>
                         <div className="mt-4 grid gap-3 rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-700">
                           <p>To: {safeText(miaEmailPreview.to, "No public email recorded")}</p>
+                          {miaEmailPreview.exactSentEmail ? <p>From: {safeText(miaEmailPreview.sender, "Not recorded")}</p> : null}
+                          {miaEmailPreview.exactSentEmail ? <p>Reply to: {safeText(miaEmailPreview.replyTo, "Not recorded")}</p> : null}
+                          {miaEmailPreview.exactSentEmail ? <p>BCC: {asArray(miaEmailPreview.bcc).length ? asArray(miaEmailPreview.bcc).join(", ") : "None"}</p> : null}
                           <p>Subject: {safeText(miaEmailPreview.subject, "No subject generated")}</p>
                           <p>Prospect: {safeText(miaEmailPreview.prospect?.organisation_name, "Unnamed prospect")}</p>
+                          {miaEmailPreview.exactSentEmail ? <p>Delivery status: {safeText(miaEmailPreview.deliveryStatus, "Not logged")}</p> : null}
+                          {miaEmailPreview.exactSentEmail ? <p>Resend email ID: {safeText(miaEmailPreview.resendEmailId || miaEmailPreview.resend_email_id, "Not assigned")}</p> : null}
                         </div>
                         <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
                           <iframe title="Mia email preview" srcDoc={miaEmailPreview.html || "<p>No preview available.</p>"} className="h-[520px] w-full rounded-xl border border-slate-200 bg-white" />

@@ -270,6 +270,7 @@ Deno.serve(async (req) => {
   const summary = { found: pending?.length || 0, sent: 0, failed: 0, results: [] as Record<string, unknown>[] };
   const sender = Deno.env.get("EMAIL_FROM") || "ACE MiDAS Training <onboarding@resend.dev>";
   const adminBcc = Deno.env.get("AGENT_EMAIL_BCC") || "info@ace-midas-training.co.uk";
+  const replyTo = Deno.env.get("AGENT_REPLY_TO") || "info@ace-midas-training.co.uk";
 
   for (const item of pending || []) {
     const metadata = { inbound_message_id: item.id, classification: item.classification, assigned_agent: item.assigned_agent, message_snippet: String(item.message_body || "").slice(0, 240), ai_provider: "manus", ai_model: "manus-1.6-lite" };
@@ -279,11 +280,30 @@ Deno.serve(async (req) => {
       const knowledge = await getKnowledgeContext(supabase, item);
       const generated = await generateWithManus(manusKey, item, currentEstimate, knowledge.context);
       const subject = item.assigned_agent === "theo" ? "Booking information from ACE MiDAS Training" : "Thanks for contacting ACE MiDAS Training";
-      const sent = await sendEmail(resendKey, { from: sender, to: [item.from_email], bcc: adminBcc ? [adminBcc] : undefined, subject, html: html(generated.body) });
-      if (!sent.ok) throw new Error(typeof sent.data === "string" ? sent.data : JSON.stringify(sent.data || { status: sent.status }));
+      const emailHtml = html(generated.body);
+      const { data: outbox, error: outboxError } = await supabase.from("agent_email_outbox").insert({
+        agent_key: item.assigned_agent,
+        agent_name: agents[item.assigned_agent]?.name || "ACE Agent",
+        purpose: "dynamic_inbound_response",
+        recipient_email: item.from_email,
+        sender_email: sender,
+        reply_to_email: replyTo,
+        bcc_emails: adminBcc ? [adminBcc] : [],
+        subject,
+        html_body: emailHtml,
+        status: "sending",
+      }).select("id").single();
+      if (outboxError || !outbox?.id) throw new Error("Outbound audit record could not be created. Email was not sent.");
+      const sent = await sendEmail(resendKey, { from: sender, to: [item.from_email], reply_to: replyTo, bcc: adminBcc ? [adminBcc] : undefined, subject, html: emailHtml });
+      if (!sent.ok) {
+        await supabase.from("agent_email_outbox").update({ status: "failed", failure_reason: typeof sent.data === "string" ? sent.data : JSON.stringify(sent.data || { status: sent.status }), provider_response: sent, updated_at: new Date().toISOString() }).eq("id", outbox.id);
+        throw new Error(typeof sent.data === "string" ? sent.data : JSON.stringify(sent.data || { status: sent.status }));
+      }
+      const resendEmailId = typeof sent.data === "object" && sent.data ? (sent.data as Record<string, unknown>).id || null : null;
+      await supabase.from("agent_email_outbox").update({ status: "accepted", resend_email_id: resendEmailId, provider_response: sent, sent_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", outbox.id);
       await supabase.from("inbound_messages").update({ status: "agent_response_sent", action_taken: "Dynamic Manus response sent.", updated_at: new Date().toISOString() }).eq("id", item.id);
-      await logAgent(supabase, item.assigned_agent, `${item.assigned_agent}_dynamic_response_sent`, `${agents[item.assigned_agent]?.name || "Agent"} sent a dynamic Manus response using approved knowledge base context.`, "sent", { ...metadata, recipient_email: item.from_email, admin_bcc: adminBcc, resend_status: sent.status, resend_response: sent.data, dynamic_response_used: true, manus_task_id: generated.task_id, email_sent: true, knowledge_matches: knowledge.matches });
-      await logAudit(supabase, item.assigned_agent, "dynamic_agent_response_sent", "Dynamic agent response sent through Manus, Resend and approved knowledge base context.", "sent", { ...metadata, recipient_email: item.from_email, admin_bcc: adminBcc, resend_status: sent.status, resend_response: sent.data, dynamic_response_used: true, manus_task_id: generated.task_id, email_sent: true, knowledge_matches: knowledge.matches });
+      await logAgent(supabase, item.assigned_agent, `${item.assigned_agent}_dynamic_response_sent`, `${agents[item.assigned_agent]?.name || "Agent"} sent a dynamic Manus response using approved knowledge base context.`, "sent", { ...metadata, recipient_email: item.from_email, reply_to: replyTo, admin_bcc: adminBcc, resend_status: sent.status, resend_response: sent.data, resend_email_id: resendEmailId, agent_email_outbox_id: outbox.id, dynamic_response_used: true, manus_task_id: generated.task_id, email_sent: true, knowledge_matches: knowledge.matches });
+      await logAudit(supabase, item.assigned_agent, "dynamic_agent_response_sent", "Dynamic agent response sent through Manus, Resend and approved knowledge base context.", "sent", { ...metadata, recipient_email: item.from_email, reply_to: replyTo, admin_bcc: adminBcc, resend_status: sent.status, resend_response: sent.data, resend_email_id: resendEmailId, agent_email_outbox_id: outbox.id, dynamic_response_used: true, manus_task_id: generated.task_id, email_sent: true, knowledge_matches: knowledge.matches });
       summary.sent += 1;
       summary.results.push({ id: item.id, status: "sent", agent: item.assigned_agent });
     } catch (err) {

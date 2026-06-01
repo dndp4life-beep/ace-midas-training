@@ -74,6 +74,7 @@ Deno.serve(async (req) => {
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
     const sender = Deno.env.get("EMAIL_FROM") || "ACE MiDAS Training <onboarding@resend.dev>";
     const fallbackRecipient = Deno.env.get("REMINDER_FALLBACK_EMAIL") || "info@ace-midas-training.co.uk";
+    const replyTo = Deno.env.get("AGENT_REPLY_TO") || "info@ace-midas-training.co.uk";
 
     if (!supabaseUrl || !serviceRoleKey || !resendApiKey) {
       return jsonResponse({ error: "Reminder processor is not configured." }, 500);
@@ -153,9 +154,27 @@ Deno.serve(async (req) => {
         </div>
       `;
 
+      const { data: outbox, error: outboxError } = await supabase.from("agent_email_outbox").insert({
+        agent_key: "mia",
+        agent_name: "Mia",
+        purpose: "scheduled_training_reminder",
+        recipient_email: recipient,
+        sender_email: sender,
+        reply_to_email: replyTo,
+        bcc_emails: recipient === fallbackRecipient ? [] : [fallbackRecipient],
+        subject,
+        html_body: html,
+        status: "sending",
+        organisation_id: reminder.organisation_id || member?.organisation_id || null,
+        member_id: reminder.member_id || null,
+        training_record_id: reminder.training_record_id || null,
+      }).select("id").single();
+      if (outboxError || !outbox?.id) throw new Error("Outbound audit record could not be created. Reminder email was not sent.");
+
       const providerResponse = await sendEmail(resendApiKey, {
         from: sender,
         to: [recipient],
+        reply_to: replyTo,
         bcc: recipient === fallbackRecipient ? undefined : [fallbackRecipient],
         subject,
         html,
@@ -164,6 +183,15 @@ Deno.serve(async (req) => {
       const status = providerResponse.ok ? "sent" : "failed";
       const sentAt = providerResponse.ok ? new Date().toISOString() : null;
       const errorMessage = providerResponse.ok ? null : JSON.stringify(providerResponse.body).slice(0, 1000);
+      const resendEmailId = typeof providerResponse.body === "object" && providerResponse.body ? (providerResponse.body as Record<string, unknown>).id || null : null;
+      await supabase.from("agent_email_outbox").update({
+        status: providerResponse.ok ? "accepted" : "failed",
+        resend_email_id: resendEmailId,
+        provider_response: providerResponse,
+        failure_reason: errorMessage,
+        sent_at: sentAt,
+        updated_at: new Date().toISOString(),
+      }).eq("id", outbox.id);
 
       const [queueUpdate, logInsert] = await Promise.all([
         supabase
@@ -177,7 +205,7 @@ Deno.serve(async (req) => {
           type: reminder.type,
           recipient_email: recipient,
           status,
-          provider_response: providerResponse,
+          provider_response: { ...providerResponse, agent_email_outbox_id: outbox.id, resend_email_id: resendEmailId, reply_to: replyTo },
         }),
       ]);
 

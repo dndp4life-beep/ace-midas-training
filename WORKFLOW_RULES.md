@@ -392,3 +392,13 @@ When editing the project, avoid breaking:
 - Reminder automation
 - Agent Operations Centre
 - Workflow Debug Trace
+
+## Agent Email Audit Rules
+
+- An agent email must not be treated as sent merely because a UI action completed.
+- Before Resend is called, create a secure `agent_email_outbox` record containing the exact outbound HTML, agent identity, recipient, configured sender, explicit reply destination and BCC list.
+- After Resend accepts a message, store the Resend email ID, provider response and sent timestamp.
+- Delivery-state refreshes must use the stored Resend ID and update the audit record without sending another message.
+- New Rory-to-Mia outreach replies must route to `info@ace-midas-training.co.uk` unless `AGENT_REPLY_TO` is deliberately configured to another monitored inbox.
+- New Mia outreach should BCC the monitored admin inbox so Marvin can see a copy without relying on the Livemail Sent folder.
+- Legacy sends that predate the outbox must remain labelled as historic. Do not pretend an exact body or provider ID exists when it was never stored.

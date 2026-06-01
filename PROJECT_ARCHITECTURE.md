@@ -321,6 +321,9 @@ The analyst:
 
 - Do not expose secret keys in frontend code.
 - Use Vercel API routes or Supabase Edge Functions for server-side secrets.
+- Every new agent-generated outbound email must create an `agent_email_outbox` record before Resend is called. The audit record stores the exact HTML, sender, recipient, reply destination, BCC list, Resend ID, provider response and delivery state.
+- Rory-to-Mia outreach is visible in the Mia Outreach Workspace. Cross-agent outbound communication is visible in the AI Operations Agent Email Audit Trail.
+- Resend sends do not automatically populate the Livemail IMAP Sent folder. Admin visibility is provided by the stored audit record and configured BCC copy.
 - Do not remove working Stripe, Supabase, contact form, reminder, report, certificate, or Back Office functionality.
 - Do not create unnecessary transport/fleet/incident/journey systems.
 - Keep the platform focused on ACE MiDAS Training: training, compliance, certificates, reminders, reporting, bookings, enquiries, outreach, and internal agent workflows.
