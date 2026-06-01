@@ -78,6 +78,7 @@ const niaAudiences = ["schools", "academy trusts", "councils", "SEND transport p
 const niaDefaultCta = "Visit the training page or contact ACE MiDAS Training to discuss training support.";
 const prospectSelect = "id, organisation_name, website, location, region, sector, likely_training_need, recommended_service, contact_email, phone, decision_maker_name, source_url, notes, outreach_brief, priority, score, relevance_reason, review_status, status, do_not_contact, researched_by, assigned_to, first_contact_sent_at, follow_up_1_scheduled_for, follow_up_2_scheduled_for, last_contacted_at, created_by_agent, pipeline_stage, opportunity_id, created_at, updated_at";
 const followUpTaskSelect = "id, prospect_id, agent_name, task_type, status, scheduled_for, completed_at, notes, created_at";
+const miaOutreachQueueSelect = "id, prospect_id, outreach_type, recipient_email, email_subject, email_html, status, autosend_enabled, send_attempted_at, sent_at, failure_reason, provider_response, linked_log_id, created_at, updated_at";
 const roryResearchRunSelect = "id, run_type, status, search_theme, provider, provider_task_id, provider_task_url, prospects_found, prospects_saved, duplicates_skipped, errors, started_at, completed_at";
 const miaKnowledgeBaseSelect = "id, category, title, question, approved_answer, keywords, source, status, last_updated, priority, confidence_threshold, created_at, updated_at";
 const miaVisitorQuestionSelect = "id, visitor_question, mia_answer, matched_knowledge_base_entries, confidence_score, was_answered, needs_review, visitor_name, organisation, email, phone, course_interest, number_of_participants, location, preferred_dates, urgency, notes, status, created_at, updated_at";
@@ -338,7 +339,7 @@ async function ensureCourses(supabase) {
 
 async function getTrainingCompliance(supabase) {
   const courses = await ensureCourses(supabase);
-  const [organisationsResult, membersResult, recordsResult, evidenceResult, remindersResult, reminderLogsResult, agentLogsResult, prospectsResult, followUpsResult, roryRunsResult, repliesResult, inboundResult, contentDraftsResult] = await Promise.all([
+  const [organisationsResult, membersResult, recordsResult, evidenceResult, remindersResult, reminderLogsResult, agentLogsResult, prospectsResult, followUpsResult, roryRunsResult, repliesResult, inboundResult, contentDraftsResult, miaOutreachResult] = await Promise.all([
     supabase.from("organisations").select("id, name, contact_name, contact_email, phone, created_at").order("name", { ascending: true }),
     supabase.from("members").select("id, organisation_id, full_name, email, role, created_at").order("full_name", { ascending: true }),
     supabase.from("training_records").select("id, member_id, course_id, date_completed, expiry_date, status, created_at").order("expiry_date", { ascending: true }),
@@ -351,13 +352,15 @@ async function getTrainingCompliance(supabase) {
     supabase.from("rory_research_runs").select(flexibleSelect).order("started_at", { ascending: false }).limit(100),
     supabase.from("reply_intake").select("id, organisation_id, member_id, training_record_id, contact_name, contact_email, message, classification, requested_action, assigned_agent, approval_required, approval_status, requested_course, attendees, location, preferred_dates, urgency, approved_dates, approved_availability_wording, approved_price_payment_instruction, theo_notes, draft_response, notes, created_at, updated_at").order("created_at", { ascending: false }).limit(100),
     supabase.from("inbound_messages").select("id, source, from_name, from_email, organisation, subject, message_body, classification, assigned_agent, status, action_taken, approval_required, created_at, updated_at").order("created_at", { ascending: false }).limit(100),
-    supabase.from("content_drafts").select(contentDraftSelect).order("created_at", { ascending: false }).limit(100)
+    supabase.from("content_drafts").select(contentDraftSelect).order("created_at", { ascending: false }).limit(100),
+    supabase.from("mia_outreach_queue").select(miaOutreachQueueSelect).order("updated_at", { ascending: false }).limit(500)
   ]);
   const error = organisationsResult.error || membersResult.error || recordsResult.error;
   if (error) throw error;
   if (prospectsResult.error) console.error("Prospects load error:", prospectsResult.error);
   if (followUpsResult.error) console.error("Follow-up tasks load error:", followUpsResult.error);
   if (roryRunsResult.error) console.error("Rory research runs load error:", roryRunsResult.error);
+  if (miaOutreachResult.error) console.error("Mia outreach queue load error:", miaOutreachResult.error);
   const contentDrafts = contentDraftsResult.error ? [] : await Promise.all((contentDraftsResult.data || []).map(async (draft) => {
     if (!draft.image_path) return { ...draft, image_url: "" };
     const { data } = await supabase.storage.from(contentAssetBucket).createSignedUrl(draft.image_path, 3600);
@@ -379,6 +382,7 @@ async function getTrainingCompliance(supabase) {
     replies: repliesResult.error ? [] : repliesResult.data || [],
     inboundMessages: inboundResult.error ? [] : inboundResult.data || [],
     contentDrafts,
+    miaOutreachQueue: miaOutreachResult.error ? [] : miaOutreachResult.data || [],
     counts: {
       organisations: organisationsResult.data?.length || 0,
       members: membersResult.data?.length || 0,
@@ -393,7 +397,8 @@ async function getTrainingCompliance(supabase) {
       roryRuns: roryRunsResult.error ? 0 : roryRunsResult.data?.length || 0,
       replies: repliesResult.error ? 0 : repliesResult.data?.length || 0,
       inboundMessages: inboundResult.error ? 0 : inboundResult.data?.length || 0,
-      contentDrafts: contentDraftsResult.error ? 0 : contentDraftsResult.data?.length || 0
+      contentDrafts: contentDraftsResult.error ? 0 : contentDraftsResult.data?.length || 0,
+      miaOutreachQueue: miaOutreachResult.error ? 0 : miaOutreachResult.data?.length || 0
     }
   };
 }
@@ -3692,104 +3697,196 @@ async function scoreRoryProspect(supabase, payload) {
   return { success: true, prospect: data, prospects: compliance.prospects, followUps: compliance.followUps, agentLogs: compliance.agentLogs };
 }
 
+function isValidProspectEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+export function determineMiaOutreachDisposition(prospect = {}, autosendEnabled = miaOutreachAutosendEnabled) {
+  if (prospect.do_not_contact) return { status: "skipped", reason: "Prospect is marked do not contact." };
+  if (!isValidProspectEmail(prospect.contact_email)) return { status: "skipped", reason: "A valid public contact email is required." };
+  if (!autosendEnabled) return { status: "awaiting_review", reason: "Outreach auto-send is disabled." };
+  return { status: "queued", reason: "Outreach is ready for safe sending." };
+}
+
+async function upsertMiaOutreachQueue(supabase, row) {
+  const { data, error } = await supabase
+    .from("mia_outreach_queue")
+    .upsert({ ...row, updated_at: new Date().toISOString() }, { onConflict: "prospect_id,outreach_type" })
+    .select(miaOutreachQueueSelect)
+    .single();
+  if (error) {
+    if (String(error.message || "").includes("mia_outreach_queue")) {
+      throw new Error("Mia outreach queue is not installed yet. Run the latest Supabase migration before using outreach.");
+    }
+    throw error;
+  }
+  return data;
+}
+
+async function scheduleMiaProspectFollowUps(supabase, prospect) {
+  const followUpOne = addDaysIso(5);
+  const followUpTwo = addDaysIso(14);
+  const followUpThree = addDaysIso(30);
+  const followUpFour = addDaysIso(60);
+  const { error: deleteError } = await supabase.from("follow_up_tasks").delete().eq("prospect_id", prospect.id).in("task_type", ["follow_up_1", "follow_up_2", "follow_up_3", "follow_up_4"]);
+  if (deleteError) throw deleteError;
+  const { data, error } = await supabase.from("follow_up_tasks").insert([
+    { prospect_id: prospect.id, agent_name: "Mia", task_type: "follow_up_1", status: "pending", scheduled_for: followUpOne, notes: "Day 5: Gentle follow-up after Mia's warm introduction." },
+    { prospect_id: prospect.id, agent_name: "Mia", task_type: "follow_up_2", status: "pending", scheduled_for: followUpTwo, notes: "Day 14: Compliance and training awareness email." },
+    { prospect_id: prospect.id, agent_name: "Mia", task_type: "follow_up_3", status: "pending", scheduled_for: followUpThree, notes: "Day 30: Refresher and training-record reminder." },
+    { prospect_id: prospect.id, agent_name: "Mia", task_type: "follow_up_4", status: "pending", scheduled_for: followUpFour, notes: "Day 60: Seasonal reminder covering onboarding, refresher expiry, academic-year preparation or council compliance checks." }
+  ]).select(flexibleSelect);
+  if (error) throw error;
+  return { followUps: data || [], followUpOne, followUpTwo, followUpThree, followUpFour };
+}
+
+async function logMiaOutreachStatus(supabase, prospect, queue, summary, status, approvalRequired = false, metadata = {}) {
+  const mia = getAgentIdentity("mia");
+  const log = await insertAgentLog(supabase, {
+    agent_key: "mia",
+    agent_name: mia.name,
+    agent_role: mia.title,
+    action_type: `mia_prospect_outreach_${status}`,
+    action_label: `Prospect outreach ${status.replaceAll("_", " ")}`,
+    summary,
+    status,
+    approval_required: approvalRequired,
+    metadata: { prospect_id: prospect.id, outreach_queue_id: queue.id, autosend_enabled: miaOutreachAutosendEnabled, ...metadata }
+  });
+  await supabase.from("mia_outreach_queue").update({ linked_log_id: log.id, updated_at: new Date().toISOString() }).eq("id", queue.id);
+  return log;
+}
+
+async function processMiaOutreachQueueItem(supabase, queue, prospect) {
+  const now = new Date().toISOString();
+  const email = String(prospect.contact_email || "").trim();
+  const subject = queue.email_subject || buildMiaProspectOutreachSubject(prospect);
+  const html = queue.email_html || buildMiaProspectOutreachEmail(prospect);
+  if (prospect.do_not_contact) {
+    const skipped = await upsertMiaOutreachQueue(supabase, { ...queue, prospect_id: prospect.id, outreach_type: queue.outreach_type || "initial", recipient_email: email, email_subject: subject, email_html: html, status: "skipped", failure_reason: "Prospect is marked do not contact.", autosend_enabled: miaOutreachAutosendEnabled });
+    await logMiaOutreachStatus(supabase, prospect, skipped, `Mia skipped ${prospect.organisation_name}: the prospect is marked do not contact.`, "skipped", true, { reason: skipped.failure_reason });
+    return skipped;
+  }
+  if (!isValidProspectEmail(email)) {
+    const skipped = await upsertMiaOutreachQueue(supabase, { ...queue, prospect_id: prospect.id, outreach_type: queue.outreach_type || "initial", recipient_email: email, email_subject: subject, email_html: html, status: "skipped", failure_reason: "A valid public contact email is required.", autosend_enabled: miaOutreachAutosendEnabled });
+    await supabase.from("prospects").update({ assigned_to: "Mia", status: "outreach_skipped", updated_at: now }).eq("id", prospect.id);
+    await logMiaOutreachStatus(supabase, prospect, skipped, `Mia skipped ${prospect.organisation_name}: a valid public contact email is required.`, "skipped", true, { reason: skipped.failure_reason });
+    return skipped;
+  }
+  const sending = await upsertMiaOutreachQueue(supabase, { ...queue, prospect_id: prospect.id, outreach_type: queue.outreach_type || "initial", recipient_email: email, email_subject: subject, email_html: html, status: "sending", send_attempted_at: now, failure_reason: null, autosend_enabled: miaOutreachAutosendEnabled });
+  let providerResponse;
+  try {
+    providerResponse = await sendAgentEmail({ to: email, subject, html });
+  } catch (error) {
+    const failureReason = error.message || "Outreach email could not be sent.";
+    const failed = await upsertMiaOutreachQueue(supabase, { ...sending, status: "failed", failure_reason: failureReason });
+    await supabase.from("prospects").update({ assigned_to: "Mia", status: "pending_outreach", updated_at: now }).eq("id", prospect.id);
+    await logMiaOutreachStatus(supabase, prospect, failed, `${getAgentIdentity("mia").name} could not send outreach to ${prospect.organisation_name}: ${failureReason}`, "failed", true, { error: failureReason });
+    return failed;
+  }
+  const sent = await upsertMiaOutreachQueue(supabase, { ...sending, status: "sent", sent_at: now, failure_reason: null, provider_response: providerResponse || {} });
+  try {
+    const sequence = await scheduleMiaProspectFollowUps(supabase, prospect);
+    const { error: updateError } = await supabase.from("prospects").update({
+      assigned_to: "Mia",
+      status: "contacted",
+      outreach_brief: prospect.outreach_brief || buildOutreachBrief(prospect),
+      follow_up_1_scheduled_for: sequence.followUpOne,
+      follow_up_2_scheduled_for: sequence.followUpTwo,
+      last_contacted_at: now,
+      first_contact_sent_at: prospect.first_contact_sent_at || now,
+      updated_at: now
+    }).eq("id", prospect.id);
+    if (updateError) throw updateError;
+    await logMiaOutreachStatus(supabase, prospect, sent, `${getAgentIdentity("mia").name} sent a warm outreach email to ${prospect.organisation_name}.`, "sent", false, { provider_response: providerResponse, follow_up_ids: sequence.followUps.map((item) => item.id) });
+    await insertAgentLog(supabase, {
+      agent_key: "mia",
+      agent_name: getAgentIdentity("mia").name,
+      agent_role: getAgentIdentity("mia").title,
+      action_type: "follow_up_scheduled",
+      action_label: "Follow-ups scheduled",
+      summary: `${getAgentIdentity("mia").name} scheduled the Day 5, Day 14, Day 30 and Day 60 follow-up sequence for ${prospect.organisation_name}.`,
+      status: "pending",
+      approval_required: false,
+      metadata: { prospect_id: prospect.id, follow_up_1_scheduled_for: sequence.followUpOne, follow_up_2_scheduled_for: sequence.followUpTwo, follow_up_3_scheduled_for: sequence.followUpThree, follow_up_4_scheduled_for: sequence.followUpFour, sequence: ["Day 0 warm introduction", "Day 5 gentle follow-up", "Day 14 compliance/training awareness", "Day 30 refresher/reminder", "Day 60 seasonal reminder"] }
+    });
+    return sent;
+  } catch (error) {
+    const postSendError = error.message || "The email was sent, but follow-up records could not be completed.";
+    await logMiaOutreachStatus(supabase, prospect, sent, `${getAgentIdentity("mia").name} sent outreach to ${prospect.organisation_name}, but follow-up records need review: ${postSendError}`, "sent", true, { provider_response: providerResponse, post_send_error: postSendError });
+    return sent;
+  }
+}
+
 async function sendProspectToMia(supabase, payload) {
   const id = String(payload?.id || "");
   if (!id) throw new Error("Prospect ID is required.");
   const { data: prospect, error: fetchError } = await supabase.from("prospects").select(flexibleSelect).eq("id", id).maybeSingle();
   if (fetchError) throw fetchError;
   if (!prospect) throw new Error("Prospect was not found.");
-  if (prospect.do_not_contact) throw new Error("This prospect is marked do not contact.");
-  const mia = getAgentIdentity("mia");
-  const rory = getAgentIdentity("rory");
-  const now = new Date().toISOString();
-  const followUpOne = addDaysIso(5);
-  const followUpTwo = addDaysIso(14);
-  const followUpThree = addDaysIso(30);
-  const followUpFour = addDaysIso(60);
+  const { data: existingQueue, error: queueError } = await supabase.from("mia_outreach_queue").select(miaOutreachQueueSelect).eq("prospect_id", prospect.id).eq("outreach_type", "initial").maybeSingle();
+  if (queueError) throw new Error("Mia outreach queue is not installed yet. Run the latest Supabase migration before using outreach.");
+  if (existingQueue?.status === "sent") {
+    await logMiaOutreachStatus(supabase, prospect, existingQueue, `Mia skipped duplicate outreach for ${prospect.organisation_name}: initial outreach was already sent.`, "skipped", true, { reason: "Initial outreach was already sent.", duplicate_prevented: true });
+    const compliance = await getTrainingCompliance(supabase);
+    return { success: true, prospect, prospects: compliance.prospects, followUps: compliance.followUps, agentLogs: compliance.agentLogs, miaOutreachQueue: compliance.miaOutreachQueue, emailStatus: "skipped", autoSendEnabled: miaOutreachAutosendEnabled };
+  }
+  const subject = buildMiaProspectOutreachSubject(prospect);
   const html = buildMiaProspectOutreachEmail(prospect);
-  const hasEmail = Boolean(String(prospect.contact_email || "").trim());
-  const canSend = miaOutreachAutosendEnabled && hasEmail;
-  let sendStatus = canSend ? "sent" : "pending_approval";
-  let providerResponse = null;
-  let errorMessage = "";
-
-  await insertAgentLog(supabase, {
+  let queue = await upsertMiaOutreachQueue(supabase, {
+    prospect_id: prospect.id,
+    outreach_type: "initial",
+    recipient_email: String(prospect.contact_email || "").trim(),
+    email_subject: subject,
+    email_html: html,
+    status: "drafted",
+    autosend_enabled: miaOutreachAutosendEnabled,
+    failure_reason: null
+  });
+  const rory = getAgentIdentity("rory");
+  const roryLog = await insertAgentLog(supabase, {
     agent_key: "rory",
     agent_name: rory.name,
     agent_role: rory.title,
     action_type: "prospect_sent_to_mia",
     action_label: "Prospect sent to Mia",
-    summary: `${rory.name} passed ${prospect.organisation_name} to ${mia.name} for outreach preparation.`,
+    summary: `${rory.name} passed ${prospect.organisation_name} to ${getAgentIdentity("mia").name} for outreach preparation.`,
     status: "sent_to_mia",
-    approval_required: !canSend,
-    metadata: { prospect_id: prospect.id, recommended_service: prospect.recommended_service, autosend_enabled: miaOutreachAutosendEnabled, has_email: hasEmail }
+    approval_required: !miaOutreachAutosendEnabled,
+    metadata: { prospect_id: prospect.id, outreach_queue_id: queue.id, recommended_service: prospect.recommended_service, autosend_enabled: miaOutreachAutosendEnabled }
   });
-
-  if (canSend) {
-    try {
-      providerResponse = await sendAgentEmail({
-        to: prospect.contact_email,
-        subject: buildMiaProspectOutreachSubject(prospect),
-        html
-      });
-    } catch (error) {
-      sendStatus = "failed";
-      errorMessage = error.message || "Outreach email could not be sent.";
-    }
+  queue = await upsertMiaOutreachQueue(supabase, { ...queue, linked_log_id: roryLog.id });
+  const disposition = determineMiaOutreachDisposition(prospect);
+  if (disposition.status === "awaiting_review") {
+    queue = await upsertMiaOutreachQueue(supabase, { ...queue, status: "awaiting_review" });
+    await supabase.from("prospects").update({ assigned_to: "Mia", status: "ready_for_outreach", outreach_brief: prospect.outreach_brief || buildOutreachBrief(prospect), updated_at: new Date().toISOString() }).eq("id", prospect.id);
+    await logMiaOutreachStatus(supabase, prospect, queue, `${getAgentIdentity("mia").name} drafted outreach for ${prospect.organisation_name}. It is awaiting review because outreach auto-send is disabled.`, "awaiting_review", true);
+  } else if (disposition.status === "queued") {
+    queue = await upsertMiaOutreachQueue(supabase, { ...queue, status: "queued" });
+    queue = await processMiaOutreachQueueItem(supabase, queue, prospect);
+  } else {
+    queue = await processMiaOutreachQueueItem(supabase, queue, prospect);
   }
-
-  const prospectUpdate = {
-    assigned_to: "Mia",
-    status: sendStatus === "sent" ? "contacted" : sendStatus === "failed" ? "pending_outreach" : "ready_for_outreach",
-    outreach_brief: prospect.outreach_brief || buildOutreachBrief(prospect),
-    follow_up_1_scheduled_for: followUpOne,
-    follow_up_2_scheduled_for: followUpTwo,
-    last_contacted_at: sendStatus === "sent" ? now : prospect.last_contacted_at,
-    first_contact_sent_at: sendStatus === "sent" ? now : prospect.first_contact_sent_at,
-    updated_at: now
-  };
-  const { data: updatedProspect, error: updateError } = await supabase.from("prospects").update(prospectUpdate).eq("id", prospect.id).select(flexibleSelect).single();
-  if (updateError) throw updateError;
-
-  const followUpStatus = sendStatus === "sent" ? "pending" : "pending_approval";
-  const { error: followUpDeleteError } = await supabase.from("follow_up_tasks").delete().eq("prospect_id", prospect.id).in("task_type", ["follow_up_1", "follow_up_2", "follow_up_3", "follow_up_4"]);
-  if (followUpDeleteError) throw followUpDeleteError;
-  const { data: followUps, error: followUpError } = await supabase.from("follow_up_tasks").insert([
-    { prospect_id: prospect.id, agent_name: "Mia", task_type: "follow_up_1", status: followUpStatus, scheduled_for: followUpOne, notes: "Day 5: Gentle follow-up after Mia's warm introduction." },
-    { prospect_id: prospect.id, agent_name: "Mia", task_type: "follow_up_2", status: followUpStatus, scheduled_for: followUpTwo, notes: "Day 14: Compliance and training awareness email." },
-    { prospect_id: prospect.id, agent_name: "Mia", task_type: "follow_up_3", status: followUpStatus, scheduled_for: followUpThree, notes: "Day 30: Refresher and training-record reminder." },
-    { prospect_id: prospect.id, agent_name: "Mia", task_type: "follow_up_4", status: followUpStatus, scheduled_for: followUpFour, notes: "Day 60: Seasonal reminder covering onboarding, refresher expiry, academic-year preparation or council compliance checks." }
-  ]).select(flexibleSelect);
-  if (followUpError) throw followUpError;
-
-  await insertAgentLog(supabase, {
-    agent_key: "mia",
-    agent_name: mia.name,
-    agent_role: mia.title,
-    action_type: sendStatus === "sent" ? "mia_prospect_outreach_sent" : sendStatus === "failed" ? "mia_prospect_outreach_failed" : "mia_prospect_outreach_pending",
-    action_label: sendStatus === "sent" ? "Prospect outreach sent" : "Prospect outreach prepared",
-    summary: sendStatus === "sent"
-      ? `${mia.name} sent a warm outreach email to ${prospect.organisation_name}.`
-      : `${mia.name} prepared outreach for ${prospect.organisation_name}; ${errorMessage || "auto-send is not enabled or no public email was available."}`,
-    status: sendStatus,
-    approval_required: sendStatus !== "sent",
-    metadata: { prospect_id: prospect.id, provider_response: providerResponse, error: errorMessage, email_preview: html, follow_up_ids: (followUps || []).map((item) => item.id), autosend_enabled: miaOutreachAutosendEnabled }
-  });
-
-  await insertAgentLog(supabase, {
-    agent_key: "mia",
-    agent_name: mia.name,
-    agent_role: mia.title,
-    action_type: "follow_up_scheduled",
-    action_label: "Follow-ups scheduled",
-    summary: `${mia.name} scheduled the Day 5, Day 14, Day 30 and Day 60 follow-up sequence for ${prospect.organisation_name}.`,
-    status: followUpStatus,
-    approval_required: followUpStatus !== "pending",
-    metadata: { prospect_id: prospect.id, follow_up_1_scheduled_for: followUpOne, follow_up_2_scheduled_for: followUpTwo, follow_up_3_scheduled_for: followUpThree, follow_up_4_scheduled_for: followUpFour, sequence: ["Day 0 warm introduction", "Day 5 gentle follow-up", "Day 14 compliance/training awareness", "Day 30 refresher/reminder", "Day 60 seasonal reminder"] }
-  });
-
   const compliance = await getTrainingCompliance(supabase);
-  return { success: true, prospect: updatedProspect, prospects: compliance.prospects, followUps: compliance.followUps, agentLogs: compliance.agentLogs, emailStatus: sendStatus, autoSendEnabled: miaOutreachAutosendEnabled };
+  return { success: true, prospect: compliance.prospects.find((item) => item.id === prospect.id) || prospect, prospects: compliance.prospects, followUps: compliance.followUps, agentLogs: compliance.agentLogs, miaOutreachQueue: compliance.miaOutreachQueue, emailStatus: queue.status, autoSendEnabled: miaOutreachAutosendEnabled };
+}
+
+async function processQueuedMiaOutreach(supabase) {
+  if (!miaOutreachAutosendEnabled) throw new Error("Mia outreach auto-send is disabled. Queued outreach cannot be processed.");
+  const { data: queueItems, error } = await supabase.from("mia_outreach_queue").select(miaOutreachQueueSelect).eq("status", "queued").order("created_at", { ascending: true }).limit(25);
+  if (error) throw error;
+  const results = [];
+  for (const queue of queueItems || []) {
+    const { data: prospect, error: prospectError } = await supabase.from("prospects").select(flexibleSelect).eq("id", queue.prospect_id).maybeSingle();
+    if (prospectError) throw prospectError;
+    if (!prospect) {
+      results.push(await upsertMiaOutreachQueue(supabase, { ...queue, status: "skipped", failure_reason: "Prospect was not found." }));
+      continue;
+    }
+    results.push(await processMiaOutreachQueueItem(supabase, queue, prospect));
+  }
+  const compliance = await getTrainingCompliance(supabase);
+  return { success: true, processed: results.length, results, prospects: compliance.prospects, followUps: compliance.followUps, agentLogs: compliance.agentLogs, miaOutreachQueue: compliance.miaOutreachQueue };
 }
 
 async function previewProspectMiaEmail(supabase, payload) {
@@ -5082,6 +5179,7 @@ export default async function handler(req, res) {
       "import-rory-prospects": importRoryProspects,
       "check-rory-research-run": checkRoryResearchRun,
       "send-prospect-to-mia": sendProspectToMia,
+      "process-mia-outreach-queue": processQueuedMiaOutreach,
       "preview-prospect-mia-email": previewProspectMiaEmail,
       "mark-prospect-do-not-contact": markProspectDoNotContact,
       "delete-prospect": deleteProspect,
