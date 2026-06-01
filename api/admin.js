@@ -100,6 +100,7 @@ const ellisUrgentAlertSelect = "id, email_triage_id, prospect_id, organisation_i
 const ellisAlertSettingsSelect = "id, setting_key, alerts_enabled, notify_by_email, notification_email, minimum_prospect_score, warm_high_priority_only, cooldown_minutes, created_at, updated_at";
 const opportunitySelect = "*";
 const opportunityQuoteSelect = "id, opportunity_id, quote_reference, quoted_value, quote_status, sent_at, expires_at, follow_up_due, notes, created_at, updated_at";
+const businessAnalystQuerySelect = "id, user_id, question, answer_summary, data_sources_used, confidence, metadata, created_at";
 const opportunityEmailLinkSelect = "id, opportunity_id, email_triage_id, reply_classification, suggested_stage, analysis_metadata, created_at";
 const opportunityResponseDraftSelect = "id, opportunity_id, email_triage_id, agent_name, draft_subject, draft_body, suggested_stage, suggested_follow_up_date, communication_type, confidence_score, similarity_score, trust_score, similar_approved_replies, automation_eligible, eligibility_reason, status, created_at, updated_at";
 const miaCommunicationSettingsSelect = "id, setting_key, approval_level, trust_threshold, confidence_threshold, automation_enabled, approved_categories, paused, created_at, updated_at";
@@ -1518,6 +1519,183 @@ function buildRevenueIntelligence(opportunities, quotes) {
   };
 }
 
+async function getRecentBusinessAnalystQueries(supabase) {
+  const { data, error } = await supabase.from("business_analyst_queries").select(businessAnalystQuerySelect).order("created_at", { ascending: false }).limit(12);
+  if (!error) return data || [];
+  if (["42P01", "PGRST205"].includes(error.code)) return [];
+  throw error;
+}
+
+function businessAnalystPriorityRows(opportunities, quotes, tasks) {
+  const today = new Date().toISOString().slice(0, 10);
+  const awaitingQuoteIds = new Set((quotes || []).filter((item) => ["Sent", "Awaiting Response"].includes(item.quote_status)).map((item) => item.opportunity_id));
+  return (opportunities || []).filter((item) => item.status === "open").map((item) => {
+    const overdue = Boolean(item.next_action_due && item.next_action_due <= today);
+    const quoteAwaiting = awaitingQuoteIds.has(item.id);
+    const relatedTasks = (tasks || []).filter((task) => task.linked_opportunity_id === item.id && !["Completed", "Cancelled"].includes(task.status));
+    const score = (item.is_hot ? 100 : 0) + (item.stage === "Quote Requested" ? 80 : 0) + (quoteAwaiting ? 70 : 0) + (overdue ? 60 : 0) + Math.min(50, opportunityExpectedValue(item) / 100) + (relatedTasks.length ? 15 : 0);
+    return { ...item, overdue, quote_awaiting: quoteAwaiting, open_tasks: relatedTasks.length, analyst_priority_score: score };
+  }).sort((a, b) => b.analyst_priority_score - a.analyst_priority_score);
+}
+
+function businessAnalystConfidence({ opportunities, emails, interactions, valued }) {
+  if (opportunities >= 10 && emails >= 10 && interactions >= 5 && valued >= 5) return "High";
+  if (opportunities >= 3 || emails >= 5 || valued >= 2) return "Medium";
+  return "Low";
+}
+
+function businessAnalystRecordLabel(item) {
+  return {
+    id: item.id,
+    organisation: item.organisation_name || "Unlinked opportunity",
+    contact: item.contact_name || item.contact_email || "Contact not linked",
+    service: item.service_type || "Needs review",
+    stage: item.stage || "Prospect Found",
+    estimated_value: Number(item.estimated_value || 0),
+    expected_value: opportunityExpectedValue(item),
+    probability: Number(item.probability ?? opportunityStageProbability(item.stage)),
+    next_action: item.next_action || "Review opportunity",
+    next_action_due: item.next_action_due || null
+  };
+}
+
+async function runBusinessAnalystQuery(supabase, payload) {
+  const question = String(payload?.question || "").trim();
+  if (!question) throw new Error("Enter a business question first.");
+  const [opportunitiesResult, prospectsResult, contactsResult, organisationsResult, tasksResult, emailsResult, interactionsResult, learningResult, memoryResult, repliesResult, syncResult, quotes] = await Promise.all([
+    supabase.from("opportunities").select(opportunitySelect).order("updated_at", { ascending: false }).limit(500),
+    supabase.from("prospects").select(prospectSelect).order("updated_at", { ascending: false }).limit(1000),
+    supabase.from("crm_contacts").select(crmContactSelect).limit(1000),
+    supabase.from("organisations").select(crmOrganisationSelect).limit(1000),
+    supabase.from("agent_work_queue").select(agentWorkQueueSelect).order("updated_at", { ascending: false }).limit(500),
+    supabase.from("email_triage").select(ellisEmailSelect).order("received_at", { ascending: false }).limit(1000),
+    supabase.from("crm_interactions").select(crmInteractionSelect).order("occurred_at", { ascending: false }).limit(1000),
+    supabase.from("ellis_learning_events").select(ellisLearningEventSelect).order("created_at", { ascending: false }).limit(1000),
+    supabase.from("mia_communication_memory").select(miaCommunicationMemorySelect).order("updated_at", { ascending: false }).limit(1000),
+    supabase.from("reply_intake").select("id, organisation_id, contact_name, contact_email, message, classification, requested_action, assigned_agent, approval_required, approval_status, created_at, updated_at").order("created_at", { ascending: false }).limit(500),
+    supabase.from("ellis_sync_history").select(ellisSyncHistorySelect).order("created_at", { ascending: false }).limit(100),
+    getOpportunityQuotes(supabase)
+  ]);
+  const error = opportunitiesResult.error || prospectsResult.error || contactsResult.error || organisationsResult.error || tasksResult.error || emailsResult.error || interactionsResult.error || learningResult.error || memoryResult.error || repliesResult.error || syncResult.error;
+  if (error) throw error;
+  const prospects = prospectsResult.data || [];
+  const contacts = contactsResult.data || [];
+  const organisations = organisationsResult.data || [];
+  const tasks = tasksResult.data || [];
+  const emails = emailsResult.data || [];
+  const interactions = interactionsResult.data || [];
+  const learning = learningResult.data || [];
+  const memory = memoryResult.data || [];
+  const replies = repliesResult.data || [];
+  const syncHistory = syncResult.data || [];
+  const contactsById = Object.fromEntries(contacts.map((item) => [item.id, item]));
+  const organisationsById = Object.fromEntries(organisations.map((item) => [item.id, item]));
+  const prospectsById = Object.fromEntries(prospects.map((item) => [item.id, item]));
+  const opportunities = (opportunitiesResult.data || []).map((item) => ({
+    ...item,
+    organisation_name: organisationsById[item.organisation_id]?.name || prospectsById[item.prospect_id]?.organisation_name || "",
+    contact_name: contactsById[item.contact_id]?.full_name || "",
+    contact_email: contactsById[item.contact_id]?.email_address || prospectsById[item.prospect_id]?.contact_email || ""
+  }));
+  const active = opportunities.filter((item) => item.status === "open");
+  const valued = active.filter((item) => Number(item.estimated_value || 0) > 0);
+  const revenue = buildRevenueIntelligence(opportunities, quotes);
+  const priorities = businessAnalystPriorityRows(opportunities, quotes, tasks);
+  const today = new Date().toISOString().slice(0, 10);
+  const normalised = question.toLowerCase();
+  const sources = ["opportunities", "opportunity_quotes", "prospects", "crm_contacts", "organisations", "agent_work_queue", "email_triage", "crm_interactions", "ellis_learning_events", "mia_communication_memory", "reply_intake", "ellis_sync_history"];
+  const confidence = businessAnalystConfidence({ opportunities: opportunities.length, emails: emails.length, interactions: interactions.length, valued: valued.length });
+  const dataQuality = `${opportunities.length} opportunity record(s), ${valued.length} valued opportunity record(s), ${emails.length} processed email record(s) and ${interactions.length} CRM interaction(s) were available.`;
+  let directAnswer = "Not enough data available yet.";
+  let supportingData = [];
+  let recommendedActions = ["Keep recording opportunity values and next actions so the analyst can make a stronger recommendation."];
+  let relatedRecords = [];
+
+  if (normalised.includes("priorit") || normalised.includes("focus") || normalised.includes("attention today")) {
+    const rows = priorities.filter((item) => item.is_hot || item.overdue || item.quote_awaiting || !item.next_action).slice(0, 5);
+    directAnswer = rows.length ? `${rows.length} opportunity item(s) need attention first.` : "No urgent opportunity items need attention today.";
+    supportingData = rows.map((item) => `${item.organisation_name || "Unlinked opportunity"}: ${item.next_action || "No next action set"}${item.overdue ? " (overdue)" : ""}.`);
+    relatedRecords = rows.map(businessAnalystRecordLabel);
+    recommendedActions = rows.length ? [`Review ${rows[0].organisation_name || "the highest-priority opportunity"} first because it has the strongest current priority signal.`] : ["Continue monitoring the pipeline and record next actions as new replies arrive."];
+  } else if (normalised.includes("overdue") || normalised.includes("stalled")) {
+    const rows = priorities.filter((item) => item.overdue).slice(0, 8);
+    directAnswer = rows.length ? `${rows.length} opportunity follow-up item(s) are overdue.` : "No opportunity follow-ups are currently overdue.";
+    supportingData = rows.map((item) => `${item.organisation_name || "Unlinked opportunity"}: due ${item.next_action_due || "not set"} - ${item.next_action || "Review opportunity"}.`);
+    relatedRecords = rows.map(businessAnalystRecordLabel);
+    recommendedActions = rows.length ? ["Work through the overdue follow-ups in priority order, starting with hot and quoted opportunities."] : ["No follow-up recovery action is needed today."];
+  } else if (normalised.includes("quote")) {
+    const awaiting = revenue.quotes_awaiting_follow_up || [];
+    directAnswer = awaiting.length ? `${awaiting.length} quote(s) are awaiting a response or follow-up.` : "No sent quotes are currently awaiting a response.";
+    supportingData = awaiting.map((item) => `${item.quote_reference}: \u00A3${Number(item.quoted_value || 0).toFixed(2)} - ${item.quote_status}.`);
+    relatedRecords = priorities.filter((item) => awaiting.some((quote) => quote.opportunity_id === item.id)).map(businessAnalystRecordLabel);
+    recommendedActions = awaiting.length ? ["Review quotes with an overdue follow-up date first."] : ["Continue recording quote statuses as quotes are prepared."];
+  } else if (normalised.includes("revenue") || normalised.includes("forecast") || normalised.includes("income")) {
+    directAnswer = `${formatAnalystCurrency(revenue.metrics.expected_30_day_revenue)} is currently forecast within 30 days, based on stored opportunity values and stage probabilities.`;
+    supportingData = [`60-day forecast: ${formatAnalystCurrency(revenue.metrics.expected_60_day_revenue)}.`, `90-day forecast: ${formatAnalystCurrency(revenue.metrics.expected_90_day_revenue)}.`, `Total active pipeline: ${formatAnalystCurrency(revenue.metrics.total_pipeline_value)}.`];
+    relatedRecords = (revenue.top_revenue_opportunities || []).slice(0, 5).map(businessAnalystRecordLabel);
+    recommendedActions = valued.length ? ["Review opportunities marked Needs Value Review to improve forecast completeness."] : ["Add estimated values to active opportunities before relying on the forecast."];
+  } else if (normalised.includes("service") || normalised.includes("strongest pipeline")) {
+    const services = revenue.revenue_by_service || [];
+    directAnswer = services.length ? `${services[0].service_type} currently has the strongest stored pipeline value at ${formatAnalystCurrency(services[0].estimated_value)}.` : "Not enough valued service data available yet.";
+    supportingData = services.slice(0, 6).map((item) => `${item.service_type}: ${formatAnalystCurrency(item.estimated_value)} across ${item.count} opportunity item(s).`);
+    recommendedActions = services.length ? ["Review whether the strongest service has enough outreach and follow-up coverage."] : ["Assign service types and estimated values to opportunities."];
+  } else if (normalised.includes("outreach") || normalised.includes("campaign")) {
+    const campaignGroups = {};
+    for (const item of memory) {
+      const key = item.communication_type || "General outreach";
+      if (!campaignGroups[key]) campaignGroups[key] = { communication_type: key, sent: 0, positive: 0, approved: 0 };
+      if (item.approval_outcome === "sent") campaignGroups[key].sent += 1;
+      if (["approved", "sent"].includes(item.approval_outcome)) campaignGroups[key].approved += 1;
+      if (["positive", "interested"].includes(String(item.follow_up_outcome || "").toLowerCase())) campaignGroups[key].positive += 1;
+    }
+    const campaigns = Object.values(campaignGroups).sort((a, b) => (b.positive - a.positive) || (b.sent - a.sent));
+    directAnswer = campaigns.length ? `${campaigns[0].communication_type} currently has the strongest stored outreach activity.` : "Not enough outreach campaign data available yet.";
+    supportingData = campaigns.slice(0, 6).map((item) => `${item.communication_type}: ${item.sent} sent, ${item.approved} approved and ${item.positive} positive outcome(s).`);
+    recommendedActions = campaigns.length ? ["Continue recording replies and outcomes so campaign comparisons become more meaningful."] : ["Use Mia communication records to capture campaign and reply outcomes."];
+  } else if (normalised.includes("school") || normalised.includes("council")) {
+    const terms = normalised.includes("school") ? ["school", "academy", "trust"] : ["council", "local authority"];
+    const cutoff = Date.now() - 30 * 86400000;
+    const noReplyRequested = normalised.includes("not replied") || normalised.includes("no reply") || normalised.includes("30 day");
+    const rows = priorities.filter((item) => {
+      const matchesType = terms.some((term) => `${item.organisation_name || ""} ${prospectsById[item.prospect_id]?.sector || ""}`.toLowerCase().includes(term));
+      if (!matchesType || !noReplyRequested) return matchesType;
+      const lastResponse = item.last_response_date ? new Date(item.last_response_date).getTime() : 0;
+      return !lastResponse || lastResponse < cutoff;
+    }).slice(0, 8);
+    directAnswer = rows.length ? `${rows.length} matching ${normalised.includes("school") ? "school or academy" : "council or local authority"} opportunity item(s) ${noReplyRequested ? "have no reply recorded within 30 days" : "are visible in the active pipeline"}.` : "Not enough matching pipeline data available yet.";
+    supportingData = rows.map((item) => `${item.organisation_name}: ${item.stage}, expected value ${formatAnalystCurrency(opportunityExpectedValue(item))}.`);
+    relatedRecords = rows.map(businessAnalystRecordLabel);
+    recommendedActions = rows.length ? ["Review the hottest or most advanced matching opportunity first."] : ["Continue enriching organisation type and sector data."];
+  } else if (normalised.includes("agent") || normalised.includes("performance")) {
+    const approvedLearning = learning.filter((item) => !item.was_undo);
+    const routingAccuracy = approvedLearning.length ? Math.max(0, Math.round(((approvedLearning.length - approvedLearning.filter((item) => item.was_override).length) / approvedLearning.length) * 100)) : 0;
+    directAnswer = "Agent performance is available as an operational snapshot.";
+    supportingData = [`Rory: ${prospects.length} prospect record(s), ${prospects.filter((item) => Number(item.score || 0) >= 75).length} high-quality prospect(s).`, `Mia: ${memory.filter((item) => item.approval_outcome === "sent").length} sent communication record(s), ${memory.filter((item) => item.approval_outcome === "approved").length} approved draft record(s).`, `Ellis: ${emails.length} processed email record(s), ${routingAccuracy}% routing accuracy from ${approvedLearning.length} learning decision(s).`, `Theo: ${replies.filter((item) => item.approval_required && !["sent", "rejected", "completed"].includes(String(item.approval_status || "").toLowerCase())).length} booking approval item(s) waiting.`];
+    recommendedActions = ["Review any agent area with pending work or thin data before increasing automation trust."];
+  } else if (normalised.includes("missing") || normalised.includes("data quality")) {
+    const missing = active.filter((item) => item.value_review_required || !item.next_action || !item.service_type);
+    directAnswer = `${missing.length} active opportunity item(s) have missing or review-required data.`;
+    supportingData = [`${active.filter((item) => Number(item.estimated_value || 0) <= 0).length} active opportunity item(s) need an estimated value.`, `${active.filter((item) => !item.next_action).length} active opportunity item(s) have no next action.`, `${active.filter((item) => !item.service_type).length} active opportunity item(s) have no service type.`];
+    relatedRecords = missing.slice(0, 8).map(businessAnalystRecordLabel);
+    recommendedActions = ["Start with estimated values and service types because they improve both forecasting and prioritisation."];
+  } else if (normalised.includes("hot") || normalised.includes("convert")) {
+    const rows = priorities.filter((item) => item.is_hot || item.stage === "Quote Requested" || item.stage === "Negotiation").slice(0, 8);
+    directAnswer = rows.length ? `${rows.length} hot or advanced opportunity item(s) are closest to conversion.` : "No hot or advanced opportunity items are recorded yet.";
+    supportingData = rows.map((item) => `${item.organisation_name || "Unlinked opportunity"}: ${item.stage}, expected value ${formatAnalystCurrency(opportunityExpectedValue(item))}.`);
+    relatedRecords = rows.map(businessAnalystRecordLabel);
+    recommendedActions = rows.length ? ["Review the highest expected-value opportunity without a completed next action first."] : ["Continue recording replies and quote requests so conversion signals become visible."];
+  }
+
+  const answer = { question, direct_answer: directAnswer, supporting_data: supportingData, recommended_actions: recommendedActions, related_records: relatedRecords, confidence, data_quality_note: dataQuality, data_sources_used: sources, generated_at: new Date().toISOString(), read_only: true };
+  const { data: saved, error: saveError } = await supabase.from("business_analyst_queries").insert({ question, answer_summary: directAnswer, data_sources_used: sources, confidence, metadata: answer }).select(businessAnalystQuerySelect).single();
+  if (saveError) throw saveError;
+  return { success: true, answer, saved_query: saved, recent_queries: await getRecentBusinessAnalystQueries(supabase), sync_reliability: syncHistory.length ? Math.round((syncHistory.filter((item) => String(item.status || "").startsWith("completed")).length / syncHistory.length) * 100) : 0 };
+}
+
+function formatAnalystCurrency(value) {
+  return `\u00A3${Number(value || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 function executiveDashboardDateMatches(value, from) {
   if (!value) return false;
   const timestamp = new Date(value).getTime();
@@ -1612,6 +1790,7 @@ async function getExecutiveDashboard(supabase) {
   ];
 
   const revenueIntelligence = buildRevenueIntelligence(opportunities, quotes);
+  const recentBusinessAnalystQueries = await getRecentBusinessAnalystQueries(supabase);
 
   return {
     success: true,
@@ -1654,6 +1833,7 @@ async function getExecutiveDashboard(supabase) {
       booking_tasks_outstanding: theoQueue.length
     },
     revenue_intelligence: revenueIntelligence,
+    business_analyst: { recent_queries: recentBusinessAnalystQueries },
     urgent_actions: urgentActions,
     morning_briefing: {
       greeting: "Good morning Marvin",
@@ -4924,6 +5104,7 @@ export default async function handler(req, res) {
       "generate-ellis-briefing": generateEllisBriefing,
       "sync-ellis-inbox": syncEllisInbox,
       "get-executive-dashboard": getExecutiveDashboard,
+      "run-business-analyst-query": runBusinessAnalystQuery,
       "get-opportunity-management": getOpportunityManagement,
       "update-opportunity": updateOpportunity,
       "save-opportunity-quote": saveOpportunityQuote,
