@@ -1048,8 +1048,11 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const [opportunityData, setOpportunityData] = useState({ opportunities: [], quotes: [], email_links: [], drafts: [], tasks: [], metrics: {}, insights: [], revenue_intelligence: {}, stages: [], service_types: [] });
   const [opportunityBusy, setOpportunityBusy] = useState("");
   const [opportunityQuoteForm, setOpportunityQuoteForm] = useState({ opportunity_id: "", quote_reference: "", quoted_value: "", quote_status: "Draft", sent_at: "", expires_at: "", follow_up_due: "", notes: "" });
-  const [executiveDashboard, setExecutiveDashboard] = useState({ executive_summary: {}, rory_summary: {}, mia_summary: {}, ellis_summary: {}, theo_summary: {}, revenue_intelligence: {}, urgent_actions: [], morning_briefing: { priorities: [] }, generated_at: "" });
+  const [executiveDashboard, setExecutiveDashboard] = useState({ executive_summary: {}, rory_summary: {}, mia_summary: {}, ellis_summary: {}, theo_summary: {}, revenue_intelligence: {}, business_analyst: { recent_queries: [] }, urgent_actions: [], morning_briefing: { priorities: [] }, generated_at: "" });
   const [executiveDashboardBusy, setExecutiveDashboardBusy] = useState("");
+  const [businessAnalystQuestion, setBusinessAnalystQuestion] = useState("");
+  const [businessAnalystResult, setBusinessAnalystResult] = useState(null);
+  const [businessAnalystBusy, setBusinessAnalystBusy] = useState(false);
   const [opportunityFilters, setOpportunityFilters] = useState({ stage: "", agent: "", status: "", hot: "" });
   const [miaCommunicationData, setMiaCommunicationData] = useState({ settings: {}, profiles: [], memory: [], sequences: [], sequence_steps: [], drafts: [], metrics: {} });
   const [miaCommunicationBusy, setMiaCommunicationBusy] = useState("");
@@ -2490,6 +2493,32 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
       return null;
     } finally {
       setExecutiveDashboardBusy("");
+    }
+  }
+
+  async function runBusinessAnalyst(question = businessAnalystQuestion) {
+    const nextQuestion = String(question || "").trim();
+    if (!nextQuestion) {
+      showMessage("error", "Enter a business question first.");
+      return;
+    }
+    setBusinessAnalystQuestion(nextQuestion);
+    setBusinessAnalystBusy(true);
+    try {
+      const { response, result } = await callAdminAction("run-business-analyst-query", { question: nextQuestion });
+      if (!response.ok) {
+        console.error("Business analyst query error:", result);
+        showMessage("error", result.error || "The Business Analyst could not answer that question.");
+        return;
+      }
+      setBusinessAnalystResult(result.answer || null);
+      setExecutiveDashboard((current) => ({ ...current, business_analyst: { recent_queries: result.recent_queries || [] } }));
+      showMessage("success", "Business Analyst insight generated.");
+    } catch (error) {
+      console.error("Business analyst query error:", error);
+      showMessage("error", "The Business Analyst could not answer that question.");
+    } finally {
+      setBusinessAnalystBusy(false);
     }
   }
 
@@ -4468,6 +4497,21 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const executiveRevenueReviews = asArray(executiveRevenue.opportunities_needing_value_review).map((item) => asObject(item));
   const executiveRevenueAlerts = asArray(executiveRevenue.alerts);
   const executiveRevenueInsights = asArray(executiveRevenue.insights);
+  const executiveBusinessAnalyst = asObject(executiveDashboard.business_analyst);
+  const executiveBusinessAnalystRecent = asArray(executiveBusinessAnalyst.recent_queries).map((item) => asObject(item));
+  const safeBusinessAnalystResult = asObject(businessAnalystResult);
+  const businessAnalystQuickQuestions = [
+    "Today's Priorities",
+    "Overdue Follow-Ups",
+    "Hot Opportunities",
+    "Revenue Forecast",
+    "Quotes Awaiting Response",
+    "Agent Performance",
+    "Schools Pipeline",
+    "Councils Pipeline",
+    "Stalled Opportunities",
+    "Missing Data"
+  ];
   const executiveUrgentActions = Array.isArray(executiveDashboard.urgent_actions) ? executiveDashboard.urgent_actions : [];
   const executiveBriefing = executiveDashboard.morning_briefing || {};
 
@@ -4585,6 +4629,36 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><h4 className="font-black text-amber-950">Revenue Alerts</h4><div className="mt-3 grid gap-2">{executiveRevenueAlerts.length ? executiveRevenueAlerts.map((item) => <p key={item} className="rounded-lg bg-white p-3 text-xs font-bold text-amber-900">{item}</p>) : <p className="text-xs font-bold text-amber-900">No revenue alerts are waiting.</p>}</div></div>
                         <div className="rounded-xl border border-slate-200 bg-white p-4"><h4 className="font-black">Ellis Revenue Insights</h4><div className="mt-3 grid gap-2">{executiveRevenueInsights.length ? executiveRevenueInsights.map((item) => <p key={item} className="text-xs font-bold text-slate-600">{item}</p>) : <p className="text-xs font-bold text-slate-500">No revenue insights yet.</p>}</div></div>
                         <div className="rounded-xl border border-slate-200 bg-white p-4"><h4 className="font-black">Needs Value Review</h4><p className="mt-2 text-2xl font-black text-red-700">{executiveRevenueReviews.length}</p><p className="mt-1 text-xs font-bold text-slate-500">Active opportunities requiring a human estimate.</p></div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <p className="text-xs font-black uppercase tracking-wide text-violet-700">Read-Only Business Intelligence</p>
+                    <h3 className="mt-2 text-xl font-black">AI Business Analyst</h3>
+                    <p className="mt-1 max-w-3xl text-sm font-semibold text-slate-600">Ask practical business questions using your stored CRM, pipeline, quote, inbox and agent activity records. The analyst recommends actions but cannot change data or trigger automation.</p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {businessAnalystQuickQuestions.map((question) => <button key={question} type="button" onClick={() => runBusinessAnalyst(question)} disabled={businessAnalystBusy} className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-black text-violet-800 disabled:opacity-50">{question}</button>)}
+                    </div>
+                    <form onSubmit={(event) => { event.preventDefault(); runBusinessAnalyst(); }} className="mt-4 flex flex-col gap-2 sm:flex-row">
+                      <input value={businessAnalystQuestion} onChange={(event) => setBusinessAnalystQuestion(event.target.value)} className="min-w-0 flex-1 rounded-xl border border-slate-200 p-3 text-sm" placeholder="Ask a business question, such as: Which opportunities need attention today?" required />
+                      <button type="submit" disabled={businessAnalystBusy} className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-black text-white disabled:opacity-60">{businessAnalystBusy ? "Analysing..." : "Generate Insight"}</button>
+                    </form>
+                    <div className="mt-4 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <h4 className="font-black">Latest Analyst Result</h4>
+                        {Object.keys(safeBusinessAnalystResult).length ? <div className="mt-3 grid gap-3">
+                          <div className="rounded-lg bg-white p-3"><p className="text-xs font-black uppercase text-violet-700">Direct answer</p><p className="mt-2 text-sm font-bold leading-relaxed text-slate-800">{safeText(safeBusinessAnalystResult.direct_answer, "Not enough data available yet.")}</p></div>
+                          <div className="grid gap-2">{asArray(safeBusinessAnalystResult.supporting_data).map((item) => <p key={item} className="rounded-lg bg-white p-3 text-xs font-semibold text-slate-700">{item}</p>)}</div>
+                          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3"><p className="text-xs font-black uppercase text-emerald-800">Recommended action</p>{asArray(safeBusinessAnalystResult.recommended_actions).map((item) => <p key={item} className="mt-2 text-sm font-bold text-emerald-950">{item}</p>)}</div>
+                          <p className="text-xs font-bold text-slate-500">Confidence: {safeText(safeBusinessAnalystResult.confidence, "Low")} | {safeText(safeBusinessAnalystResult.data_quality_note, "Not enough data available yet.")}</p>
+                        </div> : <p className="mt-3 rounded-lg bg-white p-3 text-sm font-bold text-slate-500">Choose a quick insight or ask a question to generate a read-only analysis.</p>}
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <h4 className="font-black">Recent Analyst Queries</h4>
+                        <div className="mt-3 grid max-h-96 gap-2 overflow-auto">
+                          {executiveBusinessAnalystRecent.length ? executiveBusinessAnalystRecent.map((item) => <article key={item.id} className="rounded-lg bg-white p-3"><p className="text-sm font-black text-slate-800">{safeText(item.question, "Business question")}</p><p className="mt-1 text-xs font-semibold leading-relaxed text-slate-600">{safeText(item.answer_summary, "No answer summary")}</p><p className="mt-2 text-[11px] font-black text-violet-700">{safeText(item.confidence, "Low")} confidence | {formatDisplayDateTime(item.created_at)}</p></article>) : <p className="rounded-lg bg-white p-3 text-sm font-bold text-slate-500">No analyst queries yet.</p>}
+                        </div>
                       </div>
                     </div>
                   </section>
