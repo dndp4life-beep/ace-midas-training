@@ -292,6 +292,18 @@ Revenue intelligence adds:
 
 The quote tracker is available from the existing Opportunity Pipeline tab. It stores quote records and updates won revenue when a quote is marked accepted. It does not send emails.
 
+## Phase 8C AI Business Analyst
+
+Phase 8C adds a read-only Business Analyst panel inside the Executive Command Centre. It answers operational questions from stored CRM, opportunity, quote, inbox, booking and agent activity records.
+
+The analyst:
+
+- Uses deterministic stored-data analysis rather than invented figures
+- Supports quick insights for priorities, overdue follow-ups, hot opportunities, forecasts, quotes, agent performance, schools, councils, stalled opportunities and missing data
+- Returns a direct answer, supporting facts, recommended actions, related opportunities, a confidence level and a data-quality note
+- Stores an audit record in `business_analyst_queries`
+- Cannot send email, alter pipeline stages, change routing, approve automation, delete records or trigger campaigns
+
 ## Important Development Rules
 
 - Do not expose secret keys in frontend code.

@@ -354,6 +354,15 @@ Daily AI Summary should include:
 - Accepted quotes may update won revenue for the linked opportunity.
 - Phase 8B must not alter Mia sending, Ellis inbox automation, Rory prospecting or Theo booking behaviour.
 
+## Phase 8C Business Analyst Rules
+
+- The Business Analyst is read-only and lives inside the existing Executive Command Centre.
+- It may analyse stored contacts, organisations, interactions, opportunities, quotes, bookings, agent queues, learning events, Mia communication records, Rory prospects, Theo booking records, sync history and email triage records.
+- It must not invent figures. If stored evidence is too thin, it must say `Not enough data available yet.`
+- Every answer should include a direct answer, supporting data where available, recommended actions, related records where useful, a confidence level and a data-quality note.
+- It must not send email, delete data, change opportunity stages, change routing decisions, trigger campaigns or approve automation.
+- Business Analyst questions and answer summaries are logged in `business_analyst_queries`.
+
 ## Do Not Break Existing Workflows
 
 When editing the project, avoid breaking:
