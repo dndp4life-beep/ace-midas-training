@@ -3889,6 +3889,22 @@ async function processQueuedMiaOutreach(supabase) {
   return { success: true, processed: results.length, results, prospects: compliance.prospects, followUps: compliance.followUps, agentLogs: compliance.agentLogs, miaOutreachQueue: compliance.miaOutreachQueue };
 }
 
+async function sendMiaOutreachQueueItem(supabase, payload) {
+  const id = String(payload?.id || "");
+  if (!id) throw new Error("Mia outreach queue item ID is required.");
+  const { data: queue, error } = await supabase.from("mia_outreach_queue").select(miaOutreachQueueSelect).eq("id", id).maybeSingle();
+  if (error) throw error;
+  if (!queue) throw new Error("Mia outreach queue item was not found.");
+  if (queue.status === "sent") throw new Error("This initial outreach email has already been sent.");
+  const { data: prospect, error: prospectError } = await supabase.from("prospects").select(flexibleSelect).eq("id", queue.prospect_id).maybeSingle();
+  if (prospectError) throw prospectError;
+  if (!prospect) throw new Error("The linked prospect was not found.");
+  const queued = await upsertMiaOutreachQueue(supabase, { ...queue, status: "queued", failure_reason: null });
+  const result = await processMiaOutreachQueueItem(supabase, queued, prospect);
+  const compliance = await getTrainingCompliance(supabase);
+  return { success: true, emailStatus: result.status, prospect: compliance.prospects.find((item) => item.id === prospect.id) || prospect, prospects: compliance.prospects, followUps: compliance.followUps, agentLogs: compliance.agentLogs, miaOutreachQueue: compliance.miaOutreachQueue };
+}
+
 async function previewProspectMiaEmail(supabase, payload) {
   const id = String(payload?.id || "");
   if (!id) throw new Error("Prospect ID is required.");
@@ -5180,6 +5196,7 @@ export default async function handler(req, res) {
       "check-rory-research-run": checkRoryResearchRun,
       "send-prospect-to-mia": sendProspectToMia,
       "process-mia-outreach-queue": processQueuedMiaOutreach,
+      "send-mia-outreach-queue-item": sendMiaOutreachQueueItem,
       "preview-prospect-mia-email": previewProspectMiaEmail,
       "mark-prospect-do-not-contact": markProspectDoNotContact,
       "delete-prospect": deleteProspect,
