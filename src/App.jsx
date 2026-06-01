@@ -977,6 +977,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const [agentActivityLogs, setAgentActivityLogs] = useState([]);
   const [prospects, setProspects] = useState([]);
   const [followUpTasks, setFollowUpTasks] = useState([]);
+  const [miaOutreachQueue, setMiaOutreachQueue] = useState([]);
   const [roryResearchRuns, setRoryResearchRuns] = useState([]);
   const [rorySearchTheme, setRorySearchTheme] = useState(RORY_SEARCH_THEME_OPTIONS[0]);
   const [roryLocationFocus, setRoryLocationFocus] = useState("London");
@@ -1227,6 +1228,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const safeReplyIntake = asArray(replyIntake).map((reply) => asObject(reply));
   const safeProspects = asArray(prospects).map((prospect) => asObject(prospect));
   const safeFollowUpTasks = asArray(followUpTasks).map((task) => asObject(task));
+  const safeMiaOutreachQueue = asArray(miaOutreachQueue).map((item) => ({ ...asObject(item), provider_response: asObject(asObject(item).provider_response) }));
   const safeRoryResearchRuns = asArray(roryResearchRuns).map((run) => asObject(run));
   const safeContentDrafts = asArray(contentDrafts).map((draft) => asObject(draft));
   const safeMiaKbEntries = asArray(miaKbEntries).map((entry) => asObject(entry));
@@ -1310,6 +1312,17 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const readyForMiaProspects = safeProspects.filter((prospect) => prospect.status === "ready_for_outreach" || prospect.assigned_to === "Mia");
   const contactedProspects = safeProspects.filter((prospect) => prospect.status === "contacted" || prospect.last_contacted_at);
   const doNotContactProspects = safeProspects.filter((prospect) => prospect.do_not_contact || prospect.status === "do_not_contact");
+  const miaOutreachStatusLabel = (status) => ({
+    sent_to_mia: "Sent to Mia",
+    drafted: "Drafted",
+    queued: "Queued",
+    sending: "Sending",
+    sent: "Sent",
+    failed: "Failed",
+    skipped: "Skipped",
+    awaiting_review: "Awaiting Review"
+  }[status] || safeText(status, "Not queued").replaceAll("_", " "));
+  const miaOutreachForProspect = (prospectId) => safeMiaOutreachQueue.find((item) => item.prospect_id === prospectId) || null;
   const prospectMatchesServiceFilter = (prospect) => {
     if (!roryProspectServiceFilter) return true;
     const filter = roryProspectServiceFilter.toLowerCase();
@@ -1666,11 +1679,39 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
       setProspects(result.prospects || []);
       setFollowUpTasks(result.followUps || followUpTasks);
       setAgentActivityLogs(result.agentLogs || agentActivityLogs);
-      const statusText = result.emailStatus === "sent" ? "Mia sent the outreach email and scheduled follow-ups." : "Mia prepared outreach and follow-ups for approval.";
-      showMessage("success", statusText);
+      setMiaOutreachQueue(result.miaOutreachQueue || miaOutreachQueue);
+      const statusText = {
+        sent: "Mia sent the outreach email and scheduled follow-ups.",
+        awaiting_review: "Mia drafted the outreach email. It is awaiting review.",
+        failed: "Mia attempted the outreach email, but sending failed. Review the activity panel.",
+        skipped: "Mia skipped this prospect. Review the activity panel for the reason."
+      }[result.emailStatus] || `Mia outreach status: ${String(result.emailStatus || "queued").replaceAll("_", " ")}.`;
+      showMessage(result.emailStatus === "failed" ? "error" : "success", statusText);
     } catch (error) {
       console.error("Mia prospect handoff error:", error);
       showMessage("error", "Could not send prospect to Mia.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function processMiaOutreachQueueNow() {
+    setIsSaving(true);
+    try {
+      const { response, result } = await callAdminAction("process-mia-outreach-queue");
+      if (!response.ok) {
+        console.error("Mia outreach queue process error:", result);
+        showMessage("error", result.error || "Could not process Mia's outreach queue.");
+        return;
+      }
+      setProspects(result.prospects || prospects);
+      setFollowUpTasks(result.followUps || followUpTasks);
+      setAgentActivityLogs(result.agentLogs || agentActivityLogs);
+      setMiaOutreachQueue(result.miaOutreachQueue || miaOutreachQueue);
+      showMessage("success", `Mia processed ${result.processed || 0} queued outreach item(s).`);
+    } catch (error) {
+      console.error("Mia outreach queue process error:", error);
+      showMessage("error", "Could not process Mia's outreach queue.");
     } finally {
       setIsSaving(false);
     }
@@ -1753,7 +1794,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
       return;
     }
     setIsSaving(true);
-    let sent = 0;
+    const statusCounts = {};
     let failed = 0;
     try {
       for (const prospect of prospectsToSend) {
@@ -1762,14 +1803,17 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
           failed += 1;
           console.error("Mia prospect handoff error:", result);
         } else {
-          sent += 1;
+          statusCounts[result.emailStatus || "queued"] = (statusCounts[result.emailStatus || "queued"] || 0) + 1;
           setProspects(result.prospects || []);
           setFollowUpTasks(result.followUps || followUpTasks);
           setAgentActivityLogs(result.agentLogs || agentActivityLogs);
+          setMiaOutreachQueue(result.miaOutreachQueue || miaOutreachQueue);
         }
       }
       await loadTrainingComplianceData({ quiet: true });
-      showMessage(sent ? "success" : "error", sent ? `${sent} qualified prospect(s) sent to Mia${failed ? `, ${failed} failed` : ""}.` : "Could not send qualified prospects to Mia.");
+      const processed = Object.values(statusCounts).reduce((total, count) => total + count, 0);
+      const detail = Object.entries(statusCounts).map(([status, count]) => `${count} ${miaOutreachStatusLabel(status).toLowerCase()}`).join(", ");
+      showMessage(processed ? "success" : "error", processed ? `${processed} qualified prospect(s) handed to Mia: ${detail}${failed ? `, ${failed} API failure(s)` : ""}.` : "Could not send qualified prospects to Mia.");
     } catch (error) {
       console.error("Mia qualified prospect handoff error:", error);
       showMessage("error", "Could not send qualified prospects to Mia.");
@@ -1790,7 +1834,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
       return;
     }
     setIsSaving(true);
-    let sent = 0;
+    const statusCounts = {};
     let failed = 0;
     const successfulIds = [];
     try {
@@ -1800,18 +1844,21 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
           failed += 1;
           console.error("Selected Mia prospect handoff error:", result);
         } else {
-          sent += 1;
+          statusCounts[result.emailStatus || "queued"] = (statusCounts[result.emailStatus || "queued"] || 0) + 1;
           successfulIds.push(roryProspectKey(prospect));
           setProspects(result.prospects || []);
           setFollowUpTasks(result.followUps || followUpTasks);
           setAgentActivityLogs(result.agentLogs || agentActivityLogs);
+          setMiaOutreachQueue(result.miaOutreachQueue || miaOutreachQueue);
         }
       }
       await loadTrainingComplianceData({ quiet: true });
       if (successfulIds.length) {
         setSelectedRoryProspectIds((current) => current.filter((id) => !successfulIds.includes(id)));
       }
-      showMessage(sent ? "success" : "error", sent ? `${sent} selected prospect(s) sent to Mia${failed ? `, ${failed} failed` : ""}${skipped ? `, ${skipped} skipped` : ""}.` : "Could not send selected prospects to Mia.");
+      const processed = Object.values(statusCounts).reduce((total, count) => total + count, 0);
+      const detail = Object.entries(statusCounts).map(([status, count]) => `${count} ${miaOutreachStatusLabel(status).toLowerCase()}`).join(", ");
+      showMessage(processed ? "success" : "error", processed ? `${processed} selected prospect(s) handed to Mia: ${detail}${failed ? `, ${failed} API failure(s)` : ""}${skipped ? `, ${skipped} skipped before handoff` : ""}.` : "Could not send selected prospects to Mia.");
     } catch (error) {
       console.error("Selected Mia prospect handoff error:", error);
       showMessage("error", "Could not send selected prospects to Mia.");
@@ -2401,6 +2448,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
       setAgentActivityLogs(result.agentLogs || []);
       setProspects(result.prospects || []);
       setFollowUpTasks(result.followUps || []);
+      setMiaOutreachQueue(result.miaOutreachQueue || []);
       setRoryResearchRuns(result.roryRuns || []);
       setContentDrafts(result.contentDrafts || []);
       setInboundMessages(result.inboundMessages || []);
@@ -5571,6 +5619,33 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                   </div>
 
                   <div className="mt-5 grid gap-3">
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <h4 className="font-black">Mia Outreach Activity</h4>
+                          <p className="mt-1 text-sm font-semibold text-slate-600">A durable record of Rory handoffs, previews, queued sends, successful delivery attempts, failures and skips.</p>
+                        </div>
+                        <button type="button" onClick={processMiaOutreachQueueNow} disabled={isSaving || !safeMiaOutreachQueue.some((item) => item.status === "queued")} className="rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-black text-emerald-800 disabled:opacity-50">Process Queued Outreach</button>
+                      </div>
+                      <div className="mt-4 overflow-x-auto">
+                        <table className="min-w-[980px] w-full text-left text-xs">
+                          <thead><tr className="border-b border-slate-200 text-slate-500"><th className="p-3">Prospect</th><th className="p-3">Email</th><th className="p-3">Status</th><th className="p-3">Sent time</th><th className="p-3">Failure / skip reason</th><th className="p-3">Linked log</th></tr></thead>
+                          <tbody>
+                            {safeMiaOutreachQueue.length ? safeMiaOutreachQueue.slice(0, 100).map((item) => {
+                              const prospect = safeProspects.find((candidate) => candidate.id === item.prospect_id) || {};
+                              return <tr key={item.id} className="border-b border-slate-100 align-top">
+                                <td className="p-3 font-black text-slate-900">{safeText(prospect.organisation_name, "Unknown prospect")}</td>
+                                <td className="p-3 break-all font-semibold text-slate-700">{safeText(item.recipient_email, "No valid public email")}</td>
+                                <td className="p-3"><span className={`inline-flex rounded-full px-3 py-1 font-black ${item.status === "sent" ? "bg-emerald-100 text-emerald-800" : item.status === "failed" || item.status === "skipped" ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800"}`}>{miaOutreachStatusLabel(item.status)}</span></td>
+                                <td className="p-3 font-semibold text-slate-600">{item.sent_at ? formatDisplayDateTime(item.sent_at) : "Not sent"}</td>
+                                <td className="p-3 font-semibold text-slate-600">{safeText(item.failure_reason, "None")}</td>
+                                <td className="p-3 font-semibold text-slate-600">{safeText(item.linked_log_id, "Not logged")}</td>
+                              </tr>;
+                            }) : <tr><td colSpan="6" className="p-4 text-sm font-bold text-slate-600">No Mia outreach activity yet.</td></tr>}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                       <div>
                         <h4 className="font-black">Prospect Library</h4>
@@ -5605,6 +5680,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                     {roryProspectServiceFilter || roryProspectStatusFilter || roryProspectLocationFilter ? <p className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">Showing prospects matched to {roryProspectServiceFilter || "all courses/services"}, {roryProspectStatusFilter ? roryProspectStatusFilter.replaceAll("_", " ") : "all outreach statuses"} and {roryProspectLocationFilter || "all locations"}. Bulk sending will only use qualified high-priority prospects in this filtered view.</p> : null}
                     {filteredProspects.length ? filteredProspects.map((prospect) => {
                       const scoreExplanation = getRoryScoreExplanation(prospect);
+                      const outreachActivity = miaOutreachForProspect(prospect.id);
                       return <article key={prospect.id || prospect.organisation_name} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                         <div>
@@ -5653,6 +5729,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                         <p>Last contacted: {prospect.last_contacted_at ? formatDisplayDateTime(prospect.last_contacted_at) : "Not contacted"}</p>
                         <p>Next follow-up: {nextFollowUpForProspect(prospect) ? formatDisplayDateTime(nextFollowUpForProspect(prospect)) : "Not scheduled"}</p>
                         <p>Assigned to: {safeText(prospect.assigned_to, "Not assigned")}</p>
+                        <p>Mia outreach: {outreachActivity ? miaOutreachStatusLabel(outreachActivity.status) : "Not queued"}</p>
                         <p>Do not contact: {prospect.do_not_contact ? "Yes" : "No"}</p>
                       </div>
                     </article>;
