@@ -1719,6 +1719,10 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
 
   function previewQueuedMiaOutreach(item) {
     const prospect = safeProspects.find((candidate) => candidate.id === item.prospect_id) || {};
+    if (!item.email_html && prospect.id) {
+      previewMiaProspectEmail(prospect);
+      return;
+    }
     setMiaEmailPreview({
       prospect,
       to: item.recipient_email || prospect.contact_email || "",
@@ -1766,26 +1770,35 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
       <div className="mt-4 grid gap-2 text-sm font-black sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         {[["Awaiting Review", outreachCounts.awaiting_review || 0, "bg-amber-100 text-amber-900"], ["Queued", outreachCounts.queued || 0, "bg-blue-100 text-blue-900"], ["Sending", outreachCounts.sending || 0, "bg-indigo-100 text-indigo-900"], ["Sent", outreachCounts.sent || 0, "bg-emerald-100 text-emerald-900"], ["Failed", outreachCounts.failed || 0, "bg-red-100 text-red-900"], ["Skipped", outreachCounts.skipped || 0, "bg-slate-200 text-slate-800"], ["Total", safeMiaOutreachQueue.length, "bg-white text-slate-800"]].map(([label, value, tone]) => <div key={label} className={`rounded-xl px-4 py-3 ${tone}`}><p className="text-xs uppercase">{label}</p><p className="mt-1 text-xl">{value}</p></div>)}
       </div>
-      <div className="mt-4 overflow-x-auto rounded-xl bg-white">
-        <table className="min-w-[1180px] w-full text-left text-xs">
-          <thead><tr className="border-b border-slate-200 text-slate-500"><th className="p-3">Prospect</th><th className="p-3">Email</th><th className="p-3">Status</th><th className="p-3">What happens next</th><th className="p-3">Sent time</th><th className="p-3">Failure / skip reason</th><th className="p-3">Actions</th></tr></thead>
-          <tbody>
-            {safeMiaOutreachQueue.length ? safeMiaOutreachQueue.slice(0, 100).map((item) => {
-              const prospect = safeProspects.find((candidate) => candidate.id === item.prospect_id) || {};
-              const nextStep = item.status === "sent" ? "Initial email sent. Follow-up sequence is scheduled." : item.status === "awaiting_review" ? "Preview the email, then approve it when ready." : item.status === "queued" ? "Ready for safe processing." : item.status === "sending" ? "Mia is attempting delivery through Resend." : item.status === "failed" ? "Review the reason, then retry when ready." : item.status === "skipped" ? "Review the reason. No email will be sent." : "Review the prepared outreach.";
-              const canApproveAndSend = ["awaiting_review", "failed", "queued", "drafted", "sent_to_mia"].includes(item.status);
-              return <tr key={item.id} className="border-b border-slate-100 align-top">
-                <td className="p-3 font-black text-slate-900">{safeText(prospect.organisation_name, "Unknown prospect")}</td>
-                <td className="p-3 break-all font-semibold text-slate-700">{safeText(item.recipient_email, "No valid public email")}</td>
-                <td className="p-3"><span className={`inline-flex rounded-full px-3 py-1 font-black ${item.status === "sent" ? "bg-emerald-100 text-emerald-800" : item.status === "failed" || item.status === "skipped" ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800"}`}>{miaOutreachStatusLabel(item.status)}</span></td>
-                <td className="p-3 font-semibold text-slate-600">{nextStep}</td>
-                <td className="p-3 font-semibold text-slate-600">{item.sent_at ? formatDisplayDateTime(item.sent_at) : "Not sent"}</td>
-                <td className="p-3 font-semibold text-slate-600">{safeText(item.failure_reason, "None")}</td>
-                <td className="p-3"><div className="flex flex-wrap gap-2"><button type="button" onClick={() => previewQueuedMiaOutreach(item)} className="rounded-lg border border-blue-300 bg-white px-3 py-2 font-black text-blue-800">Preview Email</button>{canApproveAndSend ? <button type="button" onClick={() => approveAndSendQueuedMiaOutreach(item)} disabled={isSaving || item.status === "sending"} className="rounded-lg bg-emerald-600 px-3 py-2 font-black text-white disabled:opacity-50">Approve &amp; Send Email</button> : null}</div></td>
-              </tr>;
-            }) : <tr><td colSpan="7" className="p-4 text-sm font-bold text-slate-600">No Mia outreach activity yet. Send a reviewed prospect to Mia to create the first draft.</td></tr>}
-          </tbody>
-        </table>
+      <div className="mt-4 grid gap-3">
+        {safeMiaOutreachQueue.length ? safeMiaOutreachQueue.slice(0, 100).map((item) => {
+          const prospect = safeProspects.find((candidate) => candidate.id === item.prospect_id) || {};
+          const isLegacyRecord = !item.email_html && String(item.failure_reason || "").includes("Imported from the legacy workflow");
+          const nextStep = item.status === "sent" ? "Initial outreach is recorded as sent. Follow-up tasks are scheduled." : item.status === "awaiting_review" ? "Preview the email, then approve it when ready." : item.status === "queued" ? "Ready for safe processing." : item.status === "sending" ? "Mia is attempting delivery through Resend." : item.status === "failed" ? "Review the reason, then retry when ready." : item.status === "skipped" ? "Review the reason. No email will be sent." : "Review the prepared outreach.";
+          const canApproveAndSend = ["awaiting_review", "failed", "queued", "drafted", "sent_to_mia"].includes(item.status);
+          return <article key={item.id} className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <h5 className="font-black text-slate-950">{safeText(prospect.organisation_name, "Unknown prospect")}</h5>
+                <p className="mt-1 break-all text-xs font-bold text-slate-600">{safeText(item.recipient_email, "No valid public email")}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <span className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${item.status === "sent" ? "bg-emerald-100 text-emerald-800" : item.status === "failed" || item.status === "skipped" ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800"}`}>{isLegacyRecord ? "Legacy send recorded" : miaOutreachStatusLabel(item.status)}</span>
+                {isLegacyRecord ? <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">Historic record</span> : null}
+              </div>
+            </div>
+            <div className="mt-3 grid gap-2 text-xs font-semibold text-slate-600 md:grid-cols-2 xl:grid-cols-4">
+              <p><span className="font-black text-slate-900">What happens next:</span> {nextStep}</p>
+              <p><span className="font-black text-slate-900">Sent time:</span> {item.sent_at ? formatDisplayDateTime(item.sent_at) : "Not sent"}</p>
+              <p><span className="font-black text-slate-900">Delivery evidence:</span> {isLegacyRecord ? "Legacy timestamp only. Resend response was not stored." : item.status === "sent" ? "Resend response stored." : "No confirmed send yet."}</p>
+              <p><span className="font-black text-slate-900">Failure / skip reason:</span> {safeText(item.failure_reason, "None")}</p>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+              <button type="button" onClick={() => previewQueuedMiaOutreach(item)} disabled={miaEmailPreviewBusy === prospect.id} className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs font-black text-blue-800 disabled:opacity-50">{miaEmailPreviewBusy === prospect.id ? "Preparing Preview..." : isLegacyRecord ? "Preview Current Mia Email" : "Preview Prepared Email"}</button>
+              {canApproveAndSend ? <button type="button" onClick={() => approveAndSendQueuedMiaOutreach(item)} disabled={isSaving || item.status === "sending"} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-50">Approve &amp; Send Email</button> : null}
+            </div>
+          </article>;
+        }) : <p className="rounded-xl bg-white p-4 text-sm font-bold text-slate-600">No Mia outreach activity yet. Send a reviewed prospect to Mia to create the first draft.</p>}
       </div>
     </div>;
   }
