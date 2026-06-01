@@ -260,6 +260,18 @@ Trusted sending has an explicit Back Office processor. It remains disabled at Le
 
 Restricted categories always remain under Marvin review: complaints, legal/compliance matters, safeguarding, invoices/payments, payment disputes, council tenders, contract negotiations and low-confidence communications.
 
+## Rory To Mia Outreach Queue
+
+Rory prospect handoffs use `mia_outreach_queue` as a durable service-role-only delivery ledger.
+
+- Selecting prospects and sending them to Mia creates or updates an initial outreach queue record.
+- Queue statuses are `sent_to_mia`, `drafted`, `queued`, `sending`, `sent`, `failed`, `skipped`, and `awaiting_review`.
+- A prospect is marked `contacted` only after Resend confirms that the initial outreach email was accepted.
+- Missing or invalid public emails and do-not-contact prospects are skipped with a visible reason.
+- Initial outreach is deduplicated per prospect.
+- Follow-up tasks are scheduled only after a successful initial email send.
+- Website enquiry auto-replies remain separate and are not changed by this queue.
+
 ## Phase 8A Executive Command Centre
 
 The Back Office Dashboard is the read-only Executive Command Centre and becomes the default landing tab after a fresh admin unlock.

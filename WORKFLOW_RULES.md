@@ -222,6 +222,17 @@ Rory must not:
 
 All prospects should go to a review list before outreach.
 
+## Rory To Mia Outreach Queue Rules
+
+- Rory handoffs must be recorded in `mia_outreach_queue`.
+- Initial outreach queue statuses are `sent_to_mia`, `drafted`, `queued`, `sending`, `sent`, `failed`, `skipped`, and `awaiting_review`.
+- Do not mark a prospect as `contacted` until Resend confirms that Mia's initial outreach email was accepted.
+- Do not schedule follow-up tasks until initial outreach was sent successfully.
+- Prevent duplicate initial outreach for the same prospect.
+- Skip do-not-contact prospects.
+- Skip missing or invalid public contact emails and record a safe reason.
+- Keep website enquiry auto-replies separate from Rory prospect outreach.
+
 ## Nia Content Rules
 
 Nia can:
