@@ -231,6 +231,7 @@ All prospects should go to a review list before outreach.
 - Prevent duplicate initial outreach for the same prospect.
 - Skip do-not-contact prospects.
 - Skip missing or invalid public contact emails and record a safe reason.
+- Drafts in `awaiting_review` may be sent only through the confirmed Back Office `Approve & Send Email` action.
 - Keep website enquiry auto-replies separate from Rory prospect outreach.
 
 ## Nia Content Rules

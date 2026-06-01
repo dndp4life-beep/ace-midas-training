@@ -270,6 +270,7 @@ Rory prospect handoffs use `mia_outreach_queue` as a durable service-role-only d
 - Missing or invalid public emails and do-not-contact prospects are skipped with a visible reason.
 - Initial outreach is deduplicated per prospect.
 - Follow-up tasks are scheduled only after a successful initial email send.
+- Rory Prospecting Centre shows a prominent Mia Outreach Workspace with delivery counts, per-prospect next steps, exact prepared-email previews, and a confirmed `Approve & Send Email` action for reviewed drafts.
 - Website enquiry auto-replies remain separate and are not changed by this queue.
 
 ## Phase 8A Executive Command Centre
