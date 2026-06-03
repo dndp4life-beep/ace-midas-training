@@ -979,6 +979,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const [followUpTasks, setFollowUpTasks] = useState([]);
   const [miaOutreachQueue, setMiaOutreachQueue] = useState([]);
   const [agentEmailOutbox, setAgentEmailOutbox] = useState([]);
+  const [deliveryStatusAudit, setDeliveryStatusAudit] = useState([]);
   const [roryResearchRuns, setRoryResearchRuns] = useState([]);
   const [rorySearchTheme, setRorySearchTheme] = useState(RORY_SEARCH_THEME_OPTIONS[0]);
   const [roryLocationFocus, setRoryLocationFocus] = useState("London");
@@ -1104,7 +1105,82 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   });
   const settings = siteSettings;
 
-  const tabs = ["Dashboard", "Blogs", "Reviews", "Onboarding", "Members", "Training Compliance", "Reports & Exports", "Export Centre", "Depot Tokens", "Activity", "AI Operations", "Ellis Operations Centre", "Opportunity Pipeline", "Mia Communications", "Mia Knowledge Base", "Ava Compliance Centre", "Nia Content Studio", "Rory Prospecting Centre", "Workflow Debug Trace", "Media Manager", "Settings"];
+  const backOfficeNavigationGroups = [
+    {
+      label: "Executive Dashboard",
+      defaultTab: "Dashboard",
+      items: [{ label: "Overview", tab: "Dashboard" }]
+    },
+    {
+      label: "Sales & Pipeline",
+      defaultTab: "Rory Prospecting Centre",
+      items: [
+        { label: "Prospects", tab: "Rory Prospecting Centre" },
+        { label: "Outreach", tab: "Mia Communications" },
+        { label: "Delivery Status", tab: "Delivery Status Audit" },
+        { label: "Opportunities", tab: "Opportunity Pipeline" },
+        { label: "Quotes", tab: "Opportunity Pipeline" },
+        { label: "Follow-Ups", tab: "Opportunity Pipeline" }
+      ]
+    },
+    {
+      label: "Inbox & Workflows",
+      defaultTab: "Ellis Operations Centre",
+      items: [
+        { label: "Inbox", tab: "Ellis Operations Centre" },
+        { label: "Routing", tab: "AI Operations" },
+        { label: "CRM", tab: "Ellis Operations Centre" },
+        { label: "Learning", tab: "Ellis Operations Centre" },
+        { label: "Activity", tab: "Activity" },
+        { label: "Debug", tab: "Workflow Debug Trace" }
+      ]
+    },
+    {
+      label: "Training & Compliance",
+      defaultTab: "Training Compliance",
+      items: [
+        { label: "Training Records", tab: "Training Compliance" },
+        { label: "Compliance", tab: "Ava Compliance Centre" }
+      ]
+    },
+    {
+      label: "Organisations & Members",
+      defaultTab: "Members",
+      items: [
+        { label: "Members", tab: "Members" },
+        { label: "Onboarding", tab: "Onboarding" },
+        { label: "Access & Tokens", tab: "Depot Tokens" }
+      ]
+    },
+    {
+      label: "Reports & Exports",
+      defaultTab: "Reports & Exports",
+      items: [{ label: "Reports & Exports", tab: "Reports & Exports" }]
+    },
+    {
+      label: "Website & Content",
+      defaultTab: "Blogs",
+      items: [
+        { label: "Blogs", tab: "Blogs" },
+        { label: "Reviews", tab: "Reviews" },
+        { label: "Media", tab: "Media Manager" },
+        { label: "Content Studio", tab: "Nia Content Studio" }
+      ]
+    },
+    {
+      label: "Knowledge & Rules",
+      defaultTab: "Mia Knowledge Base",
+      items: [{ label: "Mia Knowledge Base", tab: "Mia Knowledge Base" }]
+    },
+    {
+      label: "Settings",
+      defaultTab: "Settings",
+      items: [{ label: "Settings", tab: "Settings" }]
+    }
+  ];
+  const legacyBackOfficeTabs = ["Export Centre"];
+  const tabs = [...new Set([...backOfficeNavigationGroups.flatMap((group) => group.items.map((item) => item.tab)), ...legacyBackOfficeTabs])];
+  const activeNavigationGroup = backOfficeNavigationGroups.find((group) => group.items.some((item) => item.tab === activeTab)) || backOfficeNavigationGroups[0];
   const statusOptions = ["Pending", "In Progress", "Active", "Complete", "Paused"];
   const subscriptionStatusOptions = ["Active", "Pending", "Suspended", "Cancelled"];
   const onboardingStatusOptions = ["New", "In Progress", "Completed"];
@@ -1230,7 +1306,8 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const safeProspects = asArray(prospects).map((prospect) => asObject(prospect));
   const safeFollowUpTasks = asArray(followUpTasks).map((task) => asObject(task));
   const safeMiaOutreachQueue = asArray(miaOutreachQueue).map((item) => ({ ...asObject(item), provider_response: asObject(asObject(item).provider_response) }));
-  const safeAgentEmailOutbox = asArray(agentEmailOutbox).map((item) => ({ ...asObject(item), provider_response: asObject(asObject(item).provider_response), bcc_emails: asArray(asObject(item).bcc_emails) }));
+  const safeAgentEmailOutbox = asArray(agentEmailOutbox).map((item) => ({ ...asObject(item), provider_response: asObject(asObject(item).provider_response), bcc_emails: asArray(asObject(item).bcc_emails), all_events: asArray(asObject(item).all_events) }));
+  const safeDeliveryStatusAudit = asArray(deliveryStatusAudit).map((item) => ({ ...asObject(item), all_events: asArray(asObject(item).all_events) }));
   const safeRoryResearchRuns = asArray(roryResearchRuns).map((run) => asObject(run));
   const safeContentDrafts = asArray(contentDrafts).map((draft) => asObject(draft));
   const safeMiaKbEntries = asArray(miaKbEntries).map((entry) => asObject(entry));
@@ -1774,6 +1851,109 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     } finally {
       setMiaEmailPreviewBusy("");
     }
+  }
+
+  const deliveryStatusLabel = (status) => ({
+    accepted: "Accepted",
+    delivered: "Delivered",
+    delivery_delayed: "Delivery Delayed",
+    bounced: "Bounced",
+    complained: "Complained",
+    failed: "Failed",
+    unknown: "Unknown",
+    missing: "Missing"
+  }[String(status || "").toLowerCase()] || safeText(status, "Unknown").replaceAll("_", " "));
+
+  const deliveryStatusTone = (status) => {
+    const value = String(status || "").toLowerCase();
+    if (value === "delivered") return "bg-emerald-100 text-emerald-800";
+    if (value === "bounced" || value === "failed" || value === "complained") return "bg-red-100 text-red-800";
+    if (value === "delivery_delayed") return "bg-amber-100 text-amber-900";
+    if (value === "accepted") return "bg-blue-100 text-blue-800";
+    return "bg-slate-100 text-slate-700";
+  };
+
+  async function refreshDeliveryStatusAudit({ reconcile = false } = {}) {
+    setIsSaving(true);
+    try {
+      const action = reconcile ? "reconcile-delivery-status-audit" : "get-delivery-status-audit";
+      const { response, result } = await callAdminAction(action, { limit: 100 });
+      if (!response.ok) {
+        console.error("Delivery status audit refresh error:", result);
+        showMessage("error", result.error || "Could not refresh delivery status audit.");
+        return;
+      }
+      setDeliveryStatusAudit(result.deliveryStatusAudit || []);
+      if (reconcile) {
+        const checked = Number(result.reconciliation?.checked_count || 0);
+        const failed = Number(result.reconciliation?.failed_count || 0);
+        showMessage(failed ? "error" : "success", `Delivery reconciliation checked ${checked} email(s)${failed ? ` with ${failed} issue(s)` : ""}.`);
+      } else {
+        showMessage("success", "Delivery status audit refreshed.");
+      }
+    } catch (error) {
+      console.error("Delivery status audit refresh error:", error);
+      showMessage("error", "Could not refresh delivery status audit.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  function renderDeliveryStatusAudit() {
+    const counts = safeDeliveryStatusAudit.reduce((acc, item) => ({ ...acc, [item.final_interpreted_status || "unknown"]: (acc[item.final_interpreted_status || "unknown"] || 0) + 1 }), {});
+    const mismatches = safeDeliveryStatusAudit.filter((item) => item.mismatch_warning);
+    return <div>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Resend reconciliation</p>
+          <h2 className="mt-2 text-2xl font-black sm:text-3xl">Delivery Status Audit</h2>
+          <p className="mt-2 max-w-3xl text-sm font-semibold leading-relaxed text-slate-600">Per-recipient status from the reconciliation ledger. This view does not resend emails and does not change prospect status.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => refreshDeliveryStatusAudit({ reconcile: false })} disabled={isSaving} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-800 disabled:opacity-60">Refresh Audit</button>
+          <button type="button" onClick={() => refreshDeliveryStatusAudit({ reconcile: true })} disabled={isSaving} className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-black text-white disabled:opacity-60">Check Resend Status</button>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <ExecutiveMetricCard label="Audit Rows" value={safeDeliveryStatusAudit.length} tone="slate" />
+        <ExecutiveMetricCard label="Delivered" value={Number(counts.delivered || 0)} tone="emerald" />
+        <ExecutiveMetricCard label="Delayed" value={Number(counts.delivery_delayed || 0)} tone="amber" />
+        <ExecutiveMetricCard label="Bounced/Failed" value={Number(counts.bounced || 0) + Number(counts.failed || 0) + Number(counts.complained || 0)} tone="red" />
+        <ExecutiveMetricCard label="Mismatches" value={mismatches.length} tone={mismatches.length ? "red" : "emerald"} />
+      </div>
+
+      <div className="mt-5 overflow-x-auto rounded-xl border border-slate-200">
+        <table className="min-w-[1120px] w-full text-left text-xs">
+          <thead>
+            <tr className="border-b border-slate-200 bg-slate-50 uppercase text-slate-500">
+              <th className="p-3">Recipient</th>
+              <th className="p-3">Subject</th>
+              <th className="p-3">Resend Status</th>
+              <th className="p-3">App Status</th>
+              <th className="p-3">Final Status</th>
+              <th className="p-3">Mismatch</th>
+              <th className="p-3">Last Checked</th>
+              <th className="p-3">Event Times</th>
+              <th className="p-3">Failure Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {safeDeliveryStatusAudit.length ? safeDeliveryStatusAudit.slice(0, 300).map((item) => <tr key={`${item.resend_email_id || item.id}-${item.recipient || "recipient"}`} className="border-b border-slate-100 align-top">
+              <td className="p-3 font-black text-slate-900"><span className="break-all">{safeText(item.recipient, "Unknown recipient")}</span><span className="mt-1 block break-all text-[11px] font-bold text-slate-500">{safeText(item.resend_email_id, "No Resend ID")}</span></td>
+              <td className="p-3 font-semibold text-slate-700">{safeText(item.subject, "No subject")}</td>
+              <td className="p-3"><span className={`inline-flex rounded-full px-3 py-1 font-black ${deliveryStatusTone(item.resend_status)}`}>{deliveryStatusLabel(item.resend_status)}</span></td>
+              <td className="p-3"><span className={`inline-flex rounded-full px-3 py-1 font-black ${deliveryStatusTone(item.app_status)}`}>{deliveryStatusLabel(item.app_status)}</span></td>
+              <td className="p-3"><span className={`inline-flex rounded-full px-3 py-1 font-black ${deliveryStatusTone(item.final_interpreted_status)}`}>{deliveryStatusLabel(item.final_interpreted_status)}</span></td>
+              <td className="p-3 font-black">{item.mismatch_warning ? <span className="rounded-full bg-red-100 px-3 py-1 text-red-800">Review</span> : <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-800">OK</span>}</td>
+              <td className="p-3 font-semibold text-slate-600">{item.last_checked_at ? formatDisplayDateTime(item.last_checked_at) : "Not checked"}</td>
+              <td className="p-3 font-semibold text-slate-600"><span className="block">Delivered: {item.delivered_at ? formatDisplayDateTime(item.delivered_at) : "-"}</span><span className="block">Delayed: {item.delayed_at ? formatDisplayDateTime(item.delayed_at) : "-"}</span><span className="block">Bounced: {item.bounced_at ? formatDisplayDateTime(item.bounced_at) : "-"}</span></td>
+              <td className="p-3 font-semibold text-slate-600">{safeText(item.failure_reason, "None")}</td>
+            </tr>) : <tr><td colSpan="9" className="p-4 text-sm font-bold text-slate-600">No delivery status audit rows yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>;
   }
 
   async function approveAndSendQueuedMiaOutreach(item) {
@@ -2585,6 +2765,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
       setFollowUpTasks(result.followUps || []);
       setMiaOutreachQueue(result.miaOutreachQueue || []);
       setAgentEmailOutbox(result.agentEmailOutbox || []);
+      setDeliveryStatusAudit(result.deliveryStatusAudit || []);
       setRoryResearchRuns(result.roryRuns || []);
       setContentDrafts(result.contentDrafts || []);
       setInboundMessages(result.inboundMessages || []);
@@ -4604,6 +4785,58 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     printWindow.focus();
   }
 
+  function renderTrainingComplianceExportTools() {
+    return (
+      <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-sm font-black uppercase tracking-[0.18em] text-emerald-700">Exports</p>
+            <h3 className="text-xl font-black">Training Compliance Export Centre</h3>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">Use filters and checkboxes to control exactly what goes into CSV downloads or printable PDF-ready exports.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setExportPreviewOpen(true)} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-black">Preview Export</button>
+            <button type="button" onClick={downloadTrainingComplianceCsv} className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-black text-white">Download CSV</button>
+            <button type="button" onClick={printTrainingComplianceReport} className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-black text-white">Print / Save as PDF</button>
+            <button type="button" onClick={clearExportFilters} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-black">Clear Filters</button>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-3">
+          <label className="grid gap-2 text-sm font-bold text-slate-700">Export type<select value={exportOptions.type} onChange={(e) => updateExportOption("type", e.target.value)} className="rounded-xl border border-slate-200 p-3 font-normal"><option value="organisations">Company/organisation information only</option><option value="staff">Staff/member information only</option><option value="records">Staff training records only</option><option value="full_compliance">Full compliance report</option><option value="organisation_report">Individual organisation report</option><option value="staff_report">Individual staff member report</option><option value="expiring_report">Expiring soon report</option><option value="expired_report">Expired training report</option></select></label>
+          <label className="grid gap-2 text-sm font-bold text-slate-700">Organisation<select name="organisation_id" value={exportOptions.filters.organisation_id} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal"><option value="">All organisations</option>{tcOrganisations.map((org) => <option key={org.id} value={org.id}>{org.name}</option>)}</select></label>
+          <label className="grid gap-2 text-sm font-bold text-slate-700">Staff member<select name="member_id" value={exportOptions.filters.member_id} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal"><option value="">All staff</option>{tcMembers.filter((member) => !exportOptions.filters.organisation_id || member.organisation_id === exportOptions.filters.organisation_id).map((member) => <option key={member.id} value={member.id}>{member.full_name}</option>)}</select></label>
+          <label className="grid gap-2 text-sm font-bold text-slate-700">Course<select name="course_id" value={exportOptions.filters.course_id} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal"><option value="">All courses</option>{tcCourses.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select></label>
+          <label className="grid gap-2 text-sm font-bold text-slate-700">Status<select name="status" value={exportOptions.filters.status} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal"><option value="">All statuses</option><option value="valid">Valid</option><option value="expiring">Expiring</option><option value="expired">Expired</option></select></label>
+          <label className="grid gap-2 text-sm font-bold text-slate-700">Quick filter<select name="quick" value={exportOptions.filters.quick} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal"><option value="">All records</option><option value="valid">Valid only</option><option value="expiring">Expiring within 30 days</option><option value="expired">Expired only</option></select></label>
+          <label className="grid gap-2 text-sm font-bold text-slate-700">Completed from<input type="date" name="completed_from" value={exportOptions.filters.completed_from} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal" /></label>
+          <label className="grid gap-2 text-sm font-bold text-slate-700">Completed to<input type="date" name="completed_to" value={exportOptions.filters.completed_to} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal" /></label>
+          <label className="grid gap-2 text-sm font-bold text-slate-700">Expiry from<input type="date" name="expiry_from" value={exportOptions.filters.expiry_from} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal" /></label>
+          <label className="grid gap-2 text-sm font-bold text-slate-700">Expiry to<input type="date" name="expiry_to" value={exportOptions.filters.expiry_to} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal" /></label>
+          <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-sm font-bold"><input type="checkbox" checked={exportOptions.includeStats} onChange={(e) => updateExportOption("includeStats", e.target.checked)} /> Include summary statistics</label>
+        </div>
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-3">
+          <div className="rounded-xl border border-slate-200 bg-white p-4"><h4 className="font-black">Organisation fields</h4><div className="mt-3 grid gap-2 text-sm">{["organisation_name", "contact_name", "contact_email", "phone"].map((field) => <label key={field} className="flex items-center gap-2"><input type="checkbox" checked={exportOptions.fields[field]} onChange={() => updateExportField(field)} /> {formatExportLabel(field)}</label>)}</div></div>
+          <div className="rounded-xl border border-slate-200 bg-white p-4"><h4 className="font-black">Staff fields</h4><div className="mt-3 grid gap-2 text-sm">{["full_name", "email", "role", "organisation"].map((field) => <label key={field} className="flex items-center gap-2"><input type="checkbox" checked={exportOptions.fields[field]} onChange={() => updateExportField(field)} /> {formatExportLabel(field)}</label>)}</div></div>
+          <div className="rounded-xl border border-slate-200 bg-white p-4"><h4 className="font-black">Training fields</h4><div className="mt-3 grid gap-2 text-sm">{["course_name", "date_completed", "expiry_date", "status"].map((field) => <label key={field} className="flex items-center gap-2"><input type="checkbox" checked={exportOptions.fields[field]} onChange={() => updateExportField(field)} /> {formatExportLabel(field)}</label>)}</div></div>
+        </div>
+
+        {exportOptions.includeStats ? (() => {
+          const exportData = buildExportRows();
+          return <div className="mt-5 grid gap-3 md:grid-cols-4"><div className="rounded-xl bg-white p-4"><p className="text-xs font-bold text-slate-500">Training records</p><p className="text-2xl font-black">{exportData.stats.total_training_records}</p></div><div className="rounded-xl bg-white p-4"><p className="text-xs font-bold text-slate-500">Valid</p><p className="text-2xl font-black text-emerald-700">{exportData.stats.valid_records}</p></div><div className="rounded-xl bg-white p-4"><p className="text-xs font-bold text-slate-500">Expiring</p><p className="text-2xl font-black text-amber-700">{exportData.stats.expiring_within_30_days}</p></div><div className="rounded-xl bg-white p-4"><p className="text-xs font-bold text-slate-500">Compliance</p><p className="text-2xl font-black">{exportData.stats.compliance_percentage}</p></div></div>;
+        })() : null}
+
+        {exportPreviewOpen ? (() => {
+          const exportData = buildExportRows();
+          const rows = exportData.rows.slice(0, 10);
+          const headers = rows[0] ? Object.keys(rows[0]) : [];
+          return <div className="mt-5 rounded-xl border border-slate-200 bg-white p-4"><h4 className="font-black">Export Preview</h4><p className="mt-1 text-sm text-slate-500">{exportData.rows.length} rows match the selected filters. Showing first 10.</p>{rows.length ? <div className="mt-4 overflow-x-auto"><table className="min-w-[800px] w-full text-left text-xs"><thead className="bg-slate-100">{headers.map((header) => <th key={header} className="p-2">{header}</th>)}</thead><tbody>{rows.map((row, index) => <tr key={index} className="border-t border-slate-200">{headers.map((header) => <td key={header} className="p-2">{row[header]}</td>)}</tr>)}</tbody></table></div> : <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">No export data matches the selected filters.</p>}</div>;
+        })() : null}
+      </section>
+    );
+  }
+
   function updateMediaField(slot, field, value) {
     setMediaSettings((current) => ({
       ...current,
@@ -4744,14 +4977,32 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
           ) : null}
         </div>
 
-        <div className="mt-6 grid gap-4 lg:mt-8 lg:grid-cols-[240px_1fr] lg:gap-6">
-          <aside className="overflow-x-auto rounded-2xl border border-white/10 bg-white/10 p-3">
-            <div className="flex gap-2 lg:grid lg:gap-2">
-              {tabs.map((tab) => (
-                <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`min-w-max rounded-xl px-4 py-3 text-left text-sm font-bold ${activeTab === tab ? "bg-emerald-400 text-slate-950" : "text-white hover:bg-white/10"}`}>
-                  {tab}
-                </button>
-              ))}
+        <div className="mt-6 grid gap-4 lg:mt-8 lg:grid-cols-[280px_1fr] lg:gap-6">
+          <aside className="rounded-2xl border border-white/10 bg-white/10 p-3">
+            <div className="flex gap-2 overflow-x-auto pb-1 lg:grid lg:overflow-visible lg:pb-0">
+              {backOfficeNavigationGroups.map((group) => {
+                const isActiveGroup = group.label === activeNavigationGroup.label;
+                return (
+                  <div key={group.label} className="min-w-[220px] lg:min-w-0">
+                    <button type="button" onClick={() => setActiveTab(group.defaultTab)} className={`w-full rounded-xl px-4 py-3 text-left text-sm font-black transition ${isActiveGroup ? "bg-emerald-400 text-slate-950" : "text-white hover:bg-white/10"}`}>
+                      {group.label}
+                    </button>
+                    {isActiveGroup && group.items.length > 1 ? (
+                      <div className="mt-2 grid gap-1 rounded-xl bg-slate-950/35 p-2">
+                        {group.items.map((item) => {
+                          const primaryActiveItem = group.items.find((candidate) => candidate.tab === activeTab);
+                          const isActiveItem = primaryActiveItem?.label === item.label;
+                          return (
+                            <button key={`${group.label}-${item.label}-${item.tab}`} type="button" onClick={() => setActiveTab(item.tab)} className={`rounded-lg px-3 py-2 text-left text-xs font-bold transition ${isActiveItem ? "bg-white text-slate-950" : "text-slate-200 hover:bg-white/10 hover:text-white"}`}>
+                              {item.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           </aside>
 
@@ -4966,7 +5217,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
               <div>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <h2 className="text-2xl font-black sm:text-3xl">Training Compliance</h2>
-                  <button type="button" onClick={() => setActiveTab("Export Centre")} className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-black text-white">Open Export Centre</button>
+                  <button type="button" onClick={() => setActiveTab("Reports & Exports")} className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-black text-white">Open Reports & Exports</button>
                 </div>
                 <div className="mt-6 grid gap-4 md:grid-cols-5">
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm"><p className="text-sm font-semibold text-slate-500">Organisations</p><p className="mt-2 text-3xl font-black">{trainingSummary.organisations}</p></div>
@@ -5101,9 +5352,8 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                   <div>
                     <p className="text-sm font-black uppercase tracking-[0.18em] text-emerald-700">Compliance reporting</p>
                     <h2 className="mt-2 text-2xl font-black sm:text-3xl">Reports & Exports</h2>
-                    <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">Generate operational and council-ready compliance reports from the Training Compliance data already loaded from Supabase.</p>
+                    <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">Generate operational and council-ready compliance reports, PDF outputs, CSV exports and field-by-field compliance extracts from the Training Compliance data already loaded from Supabase.</p>
                   </div>
-                  <button type="button" onClick={() => setActiveTab("Export Centre")} className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-black text-white">Open Detailed Export Centre</button>
                 </div>
 
                 <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
@@ -5119,7 +5369,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                   <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
                     <div>
                       <h3 className="text-2xl font-black">Council-ready report library</h3>
-                      <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-300">Use quick report cards for common compliance outputs, or move into the existing Export Centre for field-by-field control.</p>
+                      <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-300">Use quick report cards for common compliance outputs. Detailed export controls now live in this same workspace below.</p>
                     </div>
                     <p className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-black text-emerald-200">{compliancePercentage}% record compliance</p>
                   </div>
@@ -5177,10 +5427,12 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                       <p className="rounded-xl bg-white p-4 text-sm font-bold text-amber-700">Expiring 7 days: {reportStatusPanel.counts.expiring7}</p>
                       <p className="rounded-xl bg-white p-4 text-sm font-bold text-red-700">Expired: {reportStatusPanel.counts.expired}</p>
                     </div>
-                    {reportStatusPanel.status === "PDF generation is not active yet" ? <p className="mt-4 rounded-xl bg-amber-50 p-4 text-sm font-bold text-amber-800">PDF generation is not active yet. Use the existing Print / Save as PDF option in Export Centre for now.</p> : null}
+                    {reportStatusPanel.status === "PDF generation is not active yet" ? <p className="mt-4 rounded-xl bg-amber-50 p-4 text-sm font-bold text-amber-800">PDF generation is not active yet. Use the Print / Save as PDF option in the Exports section below for now.</p> : null}
                     {reportStatusPanel.status === "Report data source is being connected" ? <p className="mt-4 rounded-xl bg-blue-50 p-4 text-sm font-bold text-blue-800">Reminder activity and audit trail exports need their dedicated activity data source connected before download is enabled.</p> : null}
                   </section>
                 ) : null}
+
+                {renderTrainingComplianceExportTools()}
 
                 <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm sm:p-6">
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -5234,6 +5486,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                     </div>
                   </section>
                 ) : null}
+
               </div>
             ) : null}
 
@@ -6391,6 +6644,12 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                     </div>
                   </section>
                 </div>
+              </SafeSectionBoundary>
+            ) : null}
+
+            {activeTab === "Delivery Status Audit" ? (
+              <SafeSectionBoundary title="Delivery Status Audit">
+                {renderDeliveryStatusAudit()}
               </SafeSectionBoundary>
             ) : null}
 
