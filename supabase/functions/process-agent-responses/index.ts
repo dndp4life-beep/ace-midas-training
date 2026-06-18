@@ -20,7 +20,8 @@ const prices = [
   { title: "MiDAS Accessible", price: "£210", aliases: ["midas accessible", "accessible midas"] },
   { title: "PATS Standard", price: "£125", aliases: ["pats standard", "pats"] },
   { title: "PATS Accessible", price: "£155-£185", aliases: ["pats accessible", "accessible pats"] },
-  { title: "First Aid at Work", price: "£205-£225", aliases: ["first aid at work", "faw"] },
+  { title: "First Aid at Work", price: "£220-£275", aliases: ["first aid at work", "faw"] },
+  { title: "Emergency First Aid at Work", price: "£88-£110", aliases: ["emergency first aid at work", "efaw"] },
   { title: "Children's Transport First Aid", price: "£95-£135", aliases: ["children's transport first aid", "childrens transport first aid", "ctfa"] },
 ];
 

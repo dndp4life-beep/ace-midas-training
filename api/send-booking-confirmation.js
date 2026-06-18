@@ -28,6 +28,8 @@ export default async function handler(req, res) {
       preferredDate1,
       preferredDate2,
       preferredDate3,
+      epilepsyAddOn,
+      addOnName,
       notes
     } = req.body;
 
@@ -52,6 +54,7 @@ export default async function handler(req, res) {
         <table style="width: 100%; border-collapse: collapse;">
           <tr><td style="padding: 8px; border-bottom: 1px solid #e5e7eb;"><strong>Organisation</strong></td><td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${organisation || "Not provided"}</td></tr>
           <tr><td style="padding: 8px; border-bottom: 1px solid #e5e7eb;"><strong>Course</strong></td><td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${course}</td></tr>
+          <tr><td style="padding: 8px; border-bottom: 1px solid #e5e7eb;"><strong>Specialist add-on</strong></td><td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${epilepsyAddOn ? addOnName || "Specialist Epilepsy & Buccal Rescue Medication Awareness" : "Not included"}</td></tr>
           <tr><td style="padding: 8px; border-bottom: 1px solid #e5e7eb;"><strong>Delegates</strong></td><td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${delegates}</td></tr>
           <tr><td style="padding: 8px; border-bottom: 1px solid #e5e7eb;"><strong>Training location</strong></td><td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${location}</td></tr>
           <tr><td style="padding: 8px; border-bottom: 1px solid #e5e7eb;"><strong>Phone</strong></td><td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${phone || "Not provided"}</td></tr>

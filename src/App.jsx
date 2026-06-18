@@ -388,6 +388,7 @@ const DEFAULT_MEDIA_SETTINGS = {
   pats_accessible: { label: "PATS Accessible", imageUrl: images.interior, altText: "PATS Accessible training", x: 50, y: 50, zoom: 1 },
   children_transport_first_aid: { label: "Children's Transport First Aid", imageUrl: images.firstAid, altText: "Children's Transport First Aid training", x: 50, y: 50, zoom: 1 },
   first_aid_at_work: { label: "First Aid at Work", imageUrl: "/images/faw.png", altText: "First Aid at Work training", x: 50, y: 50, zoom: 1 },
+  emergency_first_aid_at_work: { label: "Emergency First Aid at Work", imageUrl: images.firstAid, altText: "Emergency First Aid at Work training", x: 50, y: 50, zoom: 1 },
   complianceCard: { label: "Compliance card image", imageUrl: images.interior, altText: "Compliance tracking support", x: 50, y: 50, zoom: 1 },
   blogDefault: { label: "Blog default image", imageUrl: images.minibusHero, altText: "ACE MiDAS Training blog", x: 50, y: 50, zoom: 1 },
   reviewDefault: { label: "Review/default image", imageUrl: images.handshake, altText: "ACE MiDAS Training review", x: 50, y: 50, zoom: 1 }
@@ -401,6 +402,7 @@ const MEDIA_MANAGER_SLOT_ORDER = [
   "pats_accessible",
   "children_transport_first_aid",
   "first_aid_at_work",
+  "emergency_first_aid_at_work",
   "complianceCard",
   "blogDefault",
   "reviewDefault"
@@ -450,9 +452,34 @@ const trainingCourses = [
   { title: "MiDAS Accessible", price: "£210", note: "Includes £40 CTA learner-pass charge", image: images.driverSeat, mediaSlot: "midas_accessible" },
   { title: "PATS Standard", price: "£125", note: "Includes £30 CTA learner-pass charge", image: images.interior, mediaSlot: "pats_standard" },
   { title: "PATS Accessible", price: "£155-£185", note: "Attendance or proficiency routes", image: images.interior, mediaSlot: "pats_accessible" },
-  { title: "First Aid at Work", price: "£205-£225", note: "Blended or 3-day classroom options", image: images.firstAid, mediaSlot: "first_aid_at_work" },
-  { title: "Children's Transport First Aid", price: "£95-£135", note: "Optional epilepsy medication module", image: images.firstAid, mediaSlot: "children_transport_first_aid" }
+  { title: "First Aid at Work", price: "£220-£275", note: "3-day workplace first aid qualification. Blended or 3-day classroom options.", image: images.firstAid, mediaSlot: "first_aid_at_work" },
+  { title: "Emergency First Aid at Work", price: "£88-£110", note: "1-day workplace emergency first aid qualification. Ideal for low-risk workplaces and essential first aid cover.", image: images.firstAid, mediaSlot: "emergency_first_aid_at_work" },
+  { title: "Children's Transport First Aid", price: "£95-£135", note: "First aid for passenger assistants, drivers and children's transport teams", image: images.firstAid, mediaSlot: "children_transport_first_aid" }
 ];
+
+const epilepsyAwarenessAddOn = {
+  name: "Specialist Epilepsy & Buccal Rescue Medication Awareness",
+  price: 45,
+  description: "Add epilepsy awareness, seizure response, emergency procedures, care-plan awareness, recording responsibilities and buccal rescue medication awareness to this booking.",
+  note: "This add-on is awareness-based and must be delivered in line with employer policies, individual care plans and current medical guidance."
+};
+
+const firstAidAddOnEligibleCourses = new Set(["First Aid at Work", "Emergency First Aid at Work", "Children's Transport First Aid"]);
+
+function roundMoney(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function formatMoney(value) {
+  const rounded = roundMoney(value);
+  return `£${rounded.toFixed(2).replace(/\.00$/, "")}`;
+}
+
+function getGroupDiscountRate(quantity) {
+  if (quantity >= 9) return 0.2;
+  if (quantity >= 4) return 0.1;
+  return 0;
+}
 
 const features = ["Journey reporting", "Medication logs", "Attendance tracking", "Wheelchair checks", "Incident records", "Audit-ready evidence"];
 const complianceFeatureCards = [
@@ -557,7 +584,8 @@ function fileSafeName(value) {
 }
 
 function runSelfTests() {
-  console.assert(trainingCourses.length === 6, "Expected six training courses");
+  console.assert(trainingCourses.length === 7, "Expected seven training courses");
+  console.assert(trainingCourses.some((course) => course.title === "Emergency First Aid at Work"), "EFAW course should exist");
   console.assert(trainingCourses.some((course) => course.title === "Children's Transport First Aid"), "CTFA course should exist");
   console.assert(images.logoRound.startsWith("/images/"), "Images should load from public/images");
   console.assert(typeof SUPABASE_URL === "string", "Supabase URL should be a string");
@@ -606,7 +634,7 @@ function HomePage({ setPage, mediaSettings }) {
   const cards = [
     { title: "MiDAS Training", text: "Driver awareness training for minibus and passenger transport operations.", slot: "midas_standard" },
     { title: "PATS Training", text: "Passenger assistant training for staff supporting children and vulnerable passengers.", slot: "pats_standard" },
-    { title: "First Aid & CTFA", text: "First Aid at Work and Children's Transport First Aid with practical scenarios.", slot: "first_aid_at_work" }
+    { title: "First Aid, EFAW & CTFA", text: "Workplace first aid and children's transport first aid with practical scenarios.", slot: "first_aid_at_work" }
   ];
   return (
     <main className="overflow-hidden">
@@ -643,25 +671,33 @@ function HomePage({ setPage, mediaSettings }) {
 }
 
 function TrainingPage({ startBooking, mediaSettings }) {
-  return <main className="min-h-screen bg-slate-50 px-4 py-14 sm:px-6 sm:py-20"><div className="mx-auto max-w-7xl"><div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:items-center"><div><p className="font-semibold text-emerald-700">Training Services</p><h1 className="mt-3 text-3xl font-extrabold sm:text-4xl md:text-6xl">Book MiDAS, PATS, FAW or Children's Transport First Aid.</h1><p className="mt-5 leading-8 text-slate-600">Choose a course, select delegates, review the agreement, and continue to secure payment.</p></div><img src={images.vehicleLineup} alt="Passenger transport fleet" className="h-56 w-full rounded-2xl object-cover sm:h-[360px]" /></div><div className="mt-12 rounded-2xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm"><p className="font-semibold text-emerald-700">Essential Training</p><h2 className="mt-2 text-3xl font-bold">Pay per course</h2><p className="mt-3 leading-relaxed text-slate-700">Book MiDAS, PATS, First Aid at Work or Children's Transport First Aid training for individuals or groups.</p><div className="mt-5 grid gap-3 sm:grid-cols-3"><p>✓ Course booking</p><p>✓ Certification support</p><p>✓ Group booking options</p></div></div><div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-3">{trainingCourses.map((course) => <button key={course.title} type="button" onClick={() => startBooking(course)} className="overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:border-emerald-500 hover:shadow-xl"><div className="h-44 overflow-hidden bg-slate-100"><img {...mediaImageProps(mediaSettings, course.mediaSlot)} className="h-full w-full object-cover object-center" /></div><div className="p-5"><p className="text-xl font-bold text-slate-950">{course.title}</p><p className="mt-3 text-2xl font-black sm:text-3xl text-emerald-700">{course.price}</p><p className="mt-3 text-sm leading-relaxed text-slate-600">{course.note}</p><p className="mt-5 font-bold text-emerald-700">Book this course →</p></div></button>)}</div></div></main>;
+  return <main className="min-h-screen bg-slate-50 px-4 py-14 sm:px-6 sm:py-20"><div className="mx-auto max-w-7xl"><div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:items-center"><div><p className="font-semibold text-emerald-700">Training Services</p><h1 className="mt-3 text-3xl font-extrabold sm:text-4xl md:text-6xl">Book MiDAS, PATS, FAW, EFAW or Children's Transport First Aid.</h1><p className="mt-5 leading-8 text-slate-600">Choose a course, select delegates, review the agreement, and continue to secure payment.</p></div><img src={images.vehicleLineup} alt="Passenger transport fleet" className="h-56 w-full rounded-2xl object-cover sm:h-[360px]" /></div><div className="mt-12 rounded-2xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm"><p className="font-semibold text-emerald-700">Essential Training</p><h2 className="mt-2 text-3xl font-bold">Pay per course</h2><p className="mt-3 leading-relaxed text-slate-700">Book MiDAS, PATS, First Aid at Work, Emergency First Aid at Work or Children's Transport First Aid training for individuals or groups.</p><div className="mt-5 grid gap-3 sm:grid-cols-3"><p>✓ Course booking</p><p>✓ Certification support</p><p>✓ Group booking discounts</p></div><p className="mt-4 text-sm font-semibold text-emerald-800">Group discounts: 10% off for 4-8 learners and 20% off for 9+ learners.</p></div><div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-3">{trainingCourses.map((course) => <button key={course.title} type="button" onClick={() => startBooking(course)} className="overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:border-emerald-500 hover:shadow-xl"><div className="h-44 overflow-hidden bg-slate-100"><img {...mediaImageProps(mediaSettings, course.mediaSlot)} className="h-full w-full object-cover object-center" /></div><div className="p-5"><p className="text-xl font-bold text-slate-950">{course.title}</p><p className="mt-3 text-2xl font-black sm:text-3xl text-emerald-700">{course.price}</p><p className="mt-3 text-sm leading-relaxed text-slate-600">{course.note}</p><p className="mt-5 font-bold text-emerald-700">Book this course →</p></div></button>)}</div></div></main>;
 }
 
 function BookingPage({ course, setPage }) {
   const [qty, setQty] = useState(1);
   const [outside, setOutside] = useState(false);
   const [agree, setAgree] = useState(false);
+  const [includeEpilepsyAddOn, setIncludeEpilepsyAddOn] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [paymentError, setPaymentError] = useState("");
   if (!course) return <main className="min-h-screen bg-slate-50 px-4 py-14 sm:px-6 sm:py-20 text-center"><h1 className="text-3xl font-bold sm:text-4xl">No course selected</h1><button type="button" onClick={() => setPage("Training")} className="mt-8 rounded-xl bg-slate-950 px-6 py-3 font-bold text-white">Back to Training</button></main>;
   const nums = course.price.match(/\d+/g)?.map(Number) || [0];
   const low = nums[0];
   const high = nums[1] || nums[0];
-  const max = course.title.includes("PATS Accessible") || course.title.includes("First Aid") || course.title.includes("Children") ? 12 : 20;
-  const unit = nums.length > 1 ? (qty >= 9 ? low : qty >= 4 ? Math.round(high * 0.9) : high) : qty >= 9 ? Math.round(high * 0.8) : qty >= 4 ? Math.round(high * 0.9) : high;
-  const saving = Math.max(0, high - unit);
+  const discountRate = getGroupDiscountRate(qty);
+  const discountPercent = Math.round(discountRate * 100);
+  const courseUnit = roundMoney(high * (1 - discountRate));
+  const courseSaving = roundMoney(high - courseUnit);
+  const addOnEligible = firstAidAddOnEligibleCourses.has(course.title);
+  const addOnUnit = includeEpilepsyAddOn && addOnEligible ? roundMoney(epilepsyAwarenessAddOn.price * (1 - discountRate)) : 0;
+  const addOnSubtotal = roundMoney(addOnUnit * qty);
+  const unit = roundMoney(courseUnit + addOnUnit);
+  const saving = roundMoney(courseSaving + (includeEpilepsyAddOn && addOnEligible ? epilepsyAwarenessAddOn.price - addOnUnit : 0));
   const travelFee = outside ? 75 : 0;
-  const subtotal = unit * qty;
-  const total = subtotal + travelFee;
+  const courseSubtotal = roundMoney(courseUnit * qty);
+  const subtotal = roundMoney(unit * qty);
+  const total = roundMoney(subtotal + travelFee);
   async function continueToPayment() {
     if (!agree) return;
     setIsLoading(true);
@@ -674,9 +710,18 @@ function BookingPage({ course, setPage }) {
           courseTitle: course.title,
           quantity: qty,
           unitPrice: unit,
+          baseCourseUnitPrice: high,
+          courseUnitPrice: courseUnit,
+          courseSubtotal,
+          discountRate,
+          discountPercent,
           subtotal,
           travelFee,
           total,
+          addOnSelected: includeEpilepsyAddOn && addOnEligible,
+          addOnName: includeEpilepsyAddOn && addOnEligible ? epilepsyAwarenessAddOn.name : "",
+          addOnUnitPrice: addOnUnit,
+          addOnSubtotal,
           outsideA406: outside,
           agreementAccepted: agree,
           productType: "training"
@@ -690,14 +735,14 @@ function BookingPage({ course, setPage }) {
       setPaymentError(error.message || "Payment could not be started. Please try again.");
     }
   }
-  return <main className="min-h-screen bg-slate-50 px-4 py-14 sm:px-6 sm:py-20"><div className="mx-auto max-w-5xl"><div className="text-center"><p className="font-semibold text-emerald-700">Course Booking</p><h1 className="mt-3 text-3xl font-extrabold sm:text-4xl md:text-6xl">Confirm your booking</h1></div><div className="mt-12 grid gap-6 lg:grid-cols-2"><div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><h2 className="text-2xl font-bold">{course.title}</h2><p className="mt-2 text-slate-500">{course.note}</p><label className="mt-6 block font-semibold">Number of delegates</label><input type="number" min="1" max={max} value={qty} onChange={(e) => setQty(Math.max(1, Math.min(max, Number(e.target.value) || 1)))} className="mt-2 w-full rounded-xl border p-3" /><p className="mt-2 text-xs text-slate-500">Maximum allowed: {max}</p><div className="mt-6 grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => setOutside(false)} className={`rounded-xl px-4 py-3 font-bold ${!outside ? "bg-emerald-600 text-white" : "bg-slate-100"}`}>Inside A406</button><button type="button" onClick={() => setOutside(true)} className={`rounded-xl px-4 py-3 font-bold ${outside ? "bg-red-600 text-white" : "bg-slate-100"}`}>Outside A406</button></div></div><div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><h2 className="text-2xl font-bold">Price Breakdown</h2><div className="mt-6 space-y-4"><div className="flex justify-between"><span>Price per delegate</span><div className="text-right">{saving > 0 ? <p className="text-sm line-through text-slate-400">£{high}</p> : null}<b>£{unit}</b></div></div><div className="flex justify-between"><span>Delegates</span><b>{qty}</b></div><div className="flex justify-between"><span>Subtotal</span><b>£{subtotal}</b></div><div className="flex justify-between"><span>Travel fee</span><b>£{travelFee}</b></div><div className="flex justify-between border-t pt-4 text-2xl"><span>Total</span><b className="text-emerald-600">£{total}</b></div>{saving > 0 ? <p className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">You are saving £{saving * qty} with this group discount.</p> : null}<p className="rounded-xl bg-slate-50 p-3 text-sm font-semibold text-slate-700">Final payment is completed securely through Stripe. If your booking requires a group or custom price, we will confirm this before the final booking is accepted.</p></div></div></div><section className="mt-10 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><h2 className="text-2xl font-bold">Booking Agreement</h2><p className="mt-4 text-sm leading-7 text-slate-700">By selecting Yes, I agree, you confirm this booking forms a binding agreement. Payment secures the booking request. After payment, you will be redirected to select your preferred training dates. Preferred dates are subject to availability, and ACE MiDAS Training Ltd will confirm the final agreed date. No refunds for non-attendance once a date has been confirmed. If a date is unavailable, ACE MiDAS Training Ltd will offer suitable alternatives.</p><div className="mt-6 grid gap-4 sm:grid-cols-2"><button type="button" onClick={() => setAgree(true)} className={`rounded-xl p-4 font-bold ${agree ? "bg-emerald-600 text-white" : "bg-emerald-100 text-emerald-800"}`}>Yes, I agree</button><button type="button" onClick={() => setAgree(false)} className="rounded-xl bg-red-100 p-4 font-bold text-red-800">No, I do not agree</button></div><div className="mt-6 rounded-2xl bg-emerald-50 p-5"><h3 className="text-xl font-black text-emerald-900">What happens after payment</h3><div className="mt-4 grid gap-3 text-sm font-semibold text-emerald-900 sm:grid-cols-2"><p>✓ Payment secures the booking request</p><p>✓ Customer selects preferred dates after payment</p><p>✓ Dates are subject to availability</p><p>✓ Confirmation within 24 hours</p></div></div>{paymentError ? <p className="mt-5 rounded-xl bg-red-50 p-4 text-sm text-red-700">{paymentError}</p> : null}<button type="button" disabled={!agree || isLoading} onClick={continueToPayment} className={`mt-6 w-full rounded-xl p-4 font-bold ${agree && !isLoading ? "bg-slate-950 text-white" : "bg-slate-200 text-slate-400"}`}>{isLoading ? "Opening secure Stripe payment..." : `Continue to Secure Payment - £${total}`}</button><p className="mt-3 text-center text-sm font-semibold text-slate-600">Training dates confirmed within 24 hours after payment</p><button type="button" onClick={() => setPage("Training")} className="mt-4 w-full rounded-xl border p-4 font-bold">Back to Training</button></section></div></main>;
+  return <main className="min-h-screen bg-slate-50 px-4 py-14 sm:px-6 sm:py-20"><div className="mx-auto max-w-5xl"><div className="text-center"><p className="font-semibold text-emerald-700">Course Booking</p><h1 className="mt-3 text-3xl font-extrabold sm:text-4xl md:text-6xl">Confirm your booking</h1></div><div className="mt-12 grid gap-6 lg:grid-cols-2"><div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><h2 className="text-2xl font-bold">{course.title}</h2><p className="mt-2 text-slate-500">{course.note}</p><label className="mt-6 block font-semibold">Number of delegates</label><input type="number" min="1" step="1" value={qty} onChange={(e) => setQty(Math.max(1, Math.floor(Number(e.target.value) || 1)))} className="mt-2 w-full rounded-xl border p-3" /><p className="mt-2 text-xs text-slate-500">Enter the number of delegates you want to book and pay for.</p><div className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">Group discounts apply automatically: 10% off for 4-8 learners and 20% off for 9+ learners.</div>{addOnEligible ? <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-2xl border border-emerald-200 bg-white p-4"><input type="checkbox" checked={includeEpilepsyAddOn} onChange={(e) => setIncludeEpilepsyAddOn(e.target.checked)} className="mt-1 h-5 w-5" /><span><b className="block text-slate-950">Add {epilepsyAwarenessAddOn.name}</b><span className="mt-2 block text-sm leading-6 text-slate-600">{epilepsyAwarenessAddOn.description}</span><span className="mt-2 block text-xs font-semibold leading-5 text-slate-500">{epilepsyAwarenessAddOn.note}</span></span></label> : null}<div className="mt-6 grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => setOutside(false)} className={`rounded-xl px-4 py-3 font-bold ${!outside ? "bg-emerald-600 text-white" : "bg-slate-100"}`}>Inside A406</button><button type="button" onClick={() => setOutside(true)} className={`rounded-xl px-4 py-3 font-bold ${outside ? "bg-red-600 text-white" : "bg-slate-100"}`}>Outside A406</button></div></div><div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><h2 className="text-2xl font-bold">Price Breakdown</h2><div className="mt-6 space-y-4"><div className="flex justify-between"><span>Base course price per learner</span><b>{formatMoney(high)}</b></div>{discountPercent > 0 ? <div className="flex justify-between text-emerald-700"><span>Group discount</span><b>{discountPercent}% off</b></div> : null}<div className="flex justify-between"><span>Course price per learner</span><div className="text-right">{courseSaving > 0 ? <p className="text-sm line-through text-slate-400">{formatMoney(high)}</p> : null}<b>{formatMoney(courseUnit)}</b></div></div>{includeEpilepsyAddOn && addOnEligible ? <div className="flex justify-between"><span>Epilepsy add-on per learner</span><div className="text-right">{discountPercent > 0 ? <p className="text-sm line-through text-slate-400">{formatMoney(epilepsyAwarenessAddOn.price)}</p> : null}<b>{formatMoney(addOnUnit)}</b></div></div> : null}<div className="flex justify-between"><span>Delegates</span><b>{qty}</b></div><div className="flex justify-between"><span>Course subtotal</span><b>{formatMoney(courseSubtotal)}</b></div>{includeEpilepsyAddOn && addOnEligible ? <div className="flex justify-between"><span>Add-on subtotal</span><b>{formatMoney(addOnSubtotal)}</b></div> : null}<div className="flex justify-between"><span>Travel fee</span><b>{formatMoney(travelFee)}</b></div><div className="flex justify-between border-t pt-4 text-2xl"><span>Total</span><b className="text-emerald-600">{formatMoney(total)}</b></div>{saving > 0 ? <p className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">You are saving {formatMoney(roundMoney(saving * qty))} with this group discount.</p> : null}<p className="rounded-xl bg-slate-50 p-3 text-sm font-semibold text-slate-700">Final payment is completed securely through Stripe. If your booking requires a group or custom price, we will confirm this before the final booking is accepted.</p></div></div></div><section className="mt-10 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><h2 className="text-2xl font-bold">Booking Agreement</h2><p className="mt-4 text-sm leading-7 text-slate-700">By selecting Yes, I agree, you confirm this booking forms a binding agreement. Payment secures the booking request. After payment, you will be redirected to select your preferred training dates. Preferred dates are subject to availability, and ACE MiDAS Training Ltd will confirm the final agreed date. No refunds for non-attendance once a date has been confirmed. If a date is unavailable, ACE MiDAS Training Ltd will offer suitable alternatives.</p><div className="mt-6 grid gap-4 sm:grid-cols-2"><button type="button" onClick={() => setAgree(true)} className={`rounded-xl p-4 font-bold ${agree ? "bg-emerald-600 text-white" : "bg-emerald-100 text-emerald-800"}`}>Yes, I agree</button><button type="button" onClick={() => setAgree(false)} className="rounded-xl bg-red-100 p-4 font-bold text-red-800">No, I do not agree</button></div><div className="mt-6 rounded-2xl bg-emerald-50 p-5"><h3 className="text-xl font-black text-emerald-900">What happens after payment</h3><div className="mt-4 grid gap-3 text-sm font-semibold text-emerald-900 sm:grid-cols-2"><p>✓ Payment secures the booking request</p><p>✓ Customer selects preferred dates after payment</p><p>✓ Dates are subject to availability</p><p>✓ Confirmation within 24 hours</p></div></div>{paymentError ? <p className="mt-5 rounded-xl bg-red-50 p-4 text-sm text-red-700">{paymentError}</p> : null}<button type="button" disabled={!agree || isLoading} onClick={continueToPayment} className={`mt-6 w-full rounded-xl p-4 font-bold ${agree && !isLoading ? "bg-slate-950 text-white" : "bg-slate-200 text-slate-400"}`}>{isLoading ? "Opening secure Stripe payment..." : `Continue to Secure Payment - ${formatMoney(total)}`}</button><p className="mt-3 text-center text-sm font-semibold text-slate-600">Training dates confirmed within 24 hours after payment</p><button type="button" onClick={() => setPage("Training")} className="mt-4 w-full rounded-xl border p-4 font-bold">Back to Training</button></section></div></main>;
 }
 
 function BookingConfirmationPage({ setPage }) {
-  const [form, setForm] = useState({ name: "", organisation: "", email: "", phone: "", course: "", delegates: "", location: "", preferredDate1: "", preferredDate2: "", preferredDate3: "", notes: "" });
+  const [form, setForm] = useState({ name: "", organisation: "", email: "", phone: "", course: "", delegates: "", location: "", preferredDate1: "", preferredDate2: "", preferredDate3: "", epilepsyAddOn: false, notes: "" });
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
-  function updateField(e) { const { name, value } = e.target; setForm((current) => ({ ...current, [name]: value })); }
+  function updateField(e) { const { name, value, type, checked } = e.target; setForm((current) => ({ ...current, [name]: type === "checkbox" ? checked : value })); }
   async function handleSubmit(e) { e.preventDefault(); setError(""); try { const response = await fetch(BOOKING_CONFIRMATION_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) }); const data = await safeReadJson(response, "Your payment was received, but the form could not be submitted. Please email info@ace-midas-training.co.uk."); if (!response.ok) throw new Error(data.error || "Your payment was received, but the form could not be submitted. Please email info@ace-midas-training.co.uk."); setSubmitted(true); } catch (bookingError) { setError(bookingError.message || "Your payment was received, but the form could not be submitted. Please email info@ace-midas-training.co.uk."); } }
   return <main className="min-h-screen bg-slate-50 px-4 py-14 sm:px-6 sm:py-20"><div className="mx-auto max-w-5xl"><div className="rounded-3xl bg-emerald-500 p-8 text-center text-slate-950"><p className="font-semibold">Payment received</p><h1 className="mt-3 text-3xl font-bold sm:text-4xl md:text-6xl">Thank you for your booking. Your payment has been received. Please now complete your preferred training date request.</h1><p className="mx-auto mt-4 max-w-3xl text-lg">Your booking request is secured. Preferred dates are subject to availability and ACE MiDAS Training Ltd will confirm the final agreed date.</p></div><div className="mt-8 grid gap-4 md:grid-cols-3"><div className="rounded-2xl border bg-white p-5 shadow-sm"><p className="font-black text-emerald-700">1. Check your email</p><p className="mt-2 text-sm text-slate-600">You may receive a Stripe receipt and booking follow-up email.</p></div><div className="rounded-2xl border bg-white p-5 shadow-sm"><p className="font-black text-emerald-700">2. Select dates</p><p className="mt-2 text-sm text-slate-600">Send your preferred dates using the form below.</p></div><div className="rounded-2xl border bg-white p-5 shadow-sm"><p className="font-black text-emerald-700">3. Confirmation within 24h</p><p className="mt-2 text-sm text-slate-600">Dates are subject to availability and will be confirmed by ACE MiDAS Training Ltd.</p></div></div><div className="mt-10 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">{submitted ? <div className="py-10 text-center"><h2 className="text-2xl font-bold text-emerald-600">Preferred dates submitted</h2><p className="mt-3 text-slate-600">Thank you. Please check your email. We will review availability and confirm the agreed training date within 24 hours.</p><button type="button" onClick={() => setPage("Home")} className="mt-6 rounded-xl bg-slate-950 px-6 py-3 font-bold text-white">Back to Home</button></div> : <form onSubmit={handleSubmit} className="grid gap-4"><h2 className="text-2xl font-bold">Select preferred dates</h2>{error ? <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}<div className="grid gap-4 sm:grid-cols-2"><input name="name" value={form.name} onChange={updateField} className="rounded-xl border p-3" placeholder="Full name" required /><input name="organisation" value={form.organisation} onChange={updateField} className="rounded-xl border p-3" placeholder="Organisation" required /></div><div className="grid gap-4 sm:grid-cols-2"><input name="email" value={form.email} onChange={updateField} className="rounded-xl border p-3" placeholder="Email address" required /><input name="phone" value={form.phone} onChange={updateField} className="rounded-xl border p-3" placeholder="Phone number" /></div><div className="grid gap-4 sm:grid-cols-2"><select name="course" value={form.course} onChange={updateField} className="rounded-xl border p-3" required><option value="">Course booked</option>{trainingCourses.map((item) => <option key={item.title}>{item.title}</option>)}</select><input name="delegates" value={form.delegates} onChange={updateField} className="rounded-xl border p-3" placeholder="Number of delegates paid for" required /></div><input name="location" value={form.location} onChange={updateField} className="rounded-xl border p-3" placeholder="Training address / location" required /><div className="grid gap-4 sm:grid-cols-3"><input type="date" name="preferredDate1" value={form.preferredDate1} onChange={updateField} className="rounded-xl border p-3" required /><input type="date" name="preferredDate2" value={form.preferredDate2} onChange={updateField} className="rounded-xl border p-3" /><input type="date" name="preferredDate3" value={form.preferredDate3} onChange={updateField} className="rounded-xl border p-3" /></div><textarea name="notes" value={form.notes} onChange={updateField} className="rounded-xl border p-3" rows={4} placeholder="Any notes, access arrangements, parking details or preferred times." /><button type="submit" className="rounded-xl bg-slate-950 p-4 font-bold text-white">Submit Booking Details</button></form>}</div></div></main>;
 }
@@ -960,6 +1005,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const [adminAuthChecking, setAdminAuthChecking] = useState(true);
   const [message, setMessage] = useState("");
   const [activeTab, setActiveTab] = useState("Dashboard");
+  const [activeSubsection, setActiveSubsection] = useState("");
   const [blogForm, setBlogForm] = useState({ tag: "", title: "", content: "", status: "Draft" });
   const [reviewForm, setReviewForm] = useState({ rating: "", name: "", organisation: "", content: "", status: "Draft" });
   const [memberForm, setMemberForm] = useState({ organisation: "", contact_name: "", email: "", username: "", subscription_status: "Pending", onboarding_status: "New", is_active: false, admin_password_reference: generateAdminReference(), med_app_url: "", journey_app_url: "" });
@@ -1105,6 +1151,11 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   });
   const settings = siteSettings;
 
+  function openBackOfficeSection(tab, subsection = "") {
+    setActiveTab(tab);
+    setActiveSubsection(subsection);
+  }
+
   const backOfficeNavigationGroups = [
     {
       label: "Executive Dashboard",
@@ -1118,19 +1169,19 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
         { label: "Prospects", tab: "Rory Prospecting Centre" },
         { label: "Outreach", tab: "Mia Communications" },
         { label: "Delivery Status", tab: "Delivery Status Audit" },
-        { label: "Opportunities", tab: "Opportunity Pipeline" },
-        { label: "Quotes", tab: "Opportunity Pipeline" },
-        { label: "Follow-Ups", tab: "Opportunity Pipeline" }
+        { label: "Opportunities", tab: "Opportunity Pipeline", subsection: "opportunities" },
+        { label: "Quotes", tab: "Opportunity Pipeline", subsection: "quotes" },
+        { label: "Follow-Ups", tab: "Opportunity Pipeline", subsection: "followups" }
       ]
     },
     {
       label: "Inbox & Workflows",
       defaultTab: "Ellis Operations Centre",
       items: [
-        { label: "Inbox", tab: "Ellis Operations Centre" },
+        { label: "Inbox", tab: "Ellis Operations Centre", subsection: "inbox" },
         { label: "Routing", tab: "AI Operations" },
-        { label: "CRM", tab: "Ellis Operations Centre" },
-        { label: "Learning", tab: "Ellis Operations Centre" },
+        { label: "CRM", tab: "Ellis Operations Centre", subsection: "crm" },
+        { label: "Learning", tab: "Ellis Operations Centre", subsection: "learning" },
         { label: "Activity", tab: "Activity" },
         { label: "Debug", tab: "Workflow Debug Trace" }
       ]
@@ -1139,14 +1190,18 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
       label: "Training & Compliance",
       defaultTab: "Training Compliance",
       items: [
-        { label: "Training Records", tab: "Training Compliance" },
-        { label: "Compliance", tab: "Ava Compliance Centre" }
+        { label: "Training Records", tab: "Training Compliance", subsection: "training-records" },
+        { label: "Compliance", tab: "Ava Compliance Centre" },
+        { label: "Certificates", tab: "Training Compliance", subsection: "certificates" },
+        { label: "Risks", tab: "Training Compliance", subsection: "risks" },
+        { label: "Reminders", tab: "Training Compliance", subsection: "reminders" }
       ]
     },
     {
       label: "Organisations & Members",
       defaultTab: "Members",
       items: [
+        { label: "Organisations", tab: "Training Compliance", subsection: "organisations" },
         { label: "Members", tab: "Members" },
         { label: "Onboarding", tab: "Onboarding" },
         { label: "Access & Tokens", tab: "Depot Tokens" }
@@ -1155,7 +1210,11 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     {
       label: "Reports & Exports",
       defaultTab: "Reports & Exports",
-      items: [{ label: "Reports & Exports", tab: "Reports & Exports" }]
+      items: [
+        { label: "Reports", tab: "Reports & Exports", subsection: "reports" },
+        { label: "Exports", tab: "Reports & Exports", subsection: "exports" },
+        { label: "Report History", tab: "Reports & Exports", subsection: "report-history" }
+      ]
     },
     {
       label: "Website & Content",
@@ -1170,7 +1229,11 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     {
       label: "Knowledge & Rules",
       defaultTab: "Mia Knowledge Base",
-      items: [{ label: "Mia Knowledge Base", tab: "Mia Knowledge Base" }]
+      items: [
+        { label: "Agent Knowledge", tab: "Mia Knowledge Base", subsection: "agent-knowledge" },
+        { label: "Mia Knowledge Base", tab: "Mia Knowledge Base", subsection: "mia-knowledge-base" },
+        { label: "Business Rules / Guardrails", tab: "Mia Knowledge Base", subsection: "guardrails" }
+      ]
     },
     {
       label: "Settings",
@@ -1180,7 +1243,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   ];
   const legacyBackOfficeTabs = ["Export Centre"];
   const tabs = [...new Set([...backOfficeNavigationGroups.flatMap((group) => group.items.map((item) => item.tab)), ...legacyBackOfficeTabs])];
-  const activeNavigationGroup = backOfficeNavigationGroups.find((group) => group.items.some((item) => item.tab === activeTab)) || backOfficeNavigationGroups[0];
+  const activeNavigationGroup = backOfficeNavigationGroups.find((group) => group.items.some((item) => item.tab === activeTab && (!activeSubsection || item.subsection === activeSubsection))) || backOfficeNavigationGroups.find((group) => group.items.some((item) => item.tab === activeTab)) || backOfficeNavigationGroups[0];
   const statusOptions = ["Pending", "In Progress", "Active", "Complete", "Paused"];
   const subscriptionStatusOptions = ["Active", "Pending", "Suspended", "Cancelled"];
   const onboardingStatusOptions = ["New", "In Progress", "Completed"];
@@ -1873,6 +1936,12 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     return "bg-slate-100 text-slate-700";
   };
 
+  const deliveryStatusHelp = (item) => {
+    const finalStatus = String(item?.final_interpreted_status || "").toLowerCase();
+    if (finalStatus === "unknown") return "No provider delivery event received yet.";
+    return "";
+  };
+
   async function refreshDeliveryStatusAudit({ reconcile = false } = {}) {
     setIsSaving(true);
     try {
@@ -1924,16 +1993,18 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
       </div>
 
       <div className="mt-5 overflow-x-auto rounded-xl border border-slate-200">
-        <table className="min-w-[1120px] w-full text-left text-xs">
+        <table className="min-w-[1320px] w-full text-left text-xs">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 uppercase text-slate-500">
               <th className="p-3">Recipient</th>
               <th className="p-3">Subject</th>
-              <th className="p-3">Resend Status</th>
               <th className="p-3">App Status</th>
-              <th className="p-3">Final Status</th>
+              <th className="p-3">Resend/Provider Status</th>
+              <th className="p-3">Final Reconciled Status</th>
               <th className="p-3">Mismatch</th>
-              <th className="p-3">Last Checked</th>
+              <th className="p-3">Last Event Time</th>
+              <th className="p-3">Last Checked/Updated</th>
+              <th className="p-3">Event Count</th>
               <th className="p-3">Event Times</th>
               <th className="p-3">Failure Reason</th>
             </tr>
@@ -1942,14 +2013,16 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
             {safeDeliveryStatusAudit.length ? safeDeliveryStatusAudit.slice(0, 300).map((item) => <tr key={`${item.resend_email_id || item.id}-${item.recipient || "recipient"}`} className="border-b border-slate-100 align-top">
               <td className="p-3 font-black text-slate-900"><span className="break-all">{safeText(item.recipient, "Unknown recipient")}</span><span className="mt-1 block break-all text-[11px] font-bold text-slate-500">{safeText(item.resend_email_id, "No Resend ID")}</span></td>
               <td className="p-3 font-semibold text-slate-700">{safeText(item.subject, "No subject")}</td>
-              <td className="p-3"><span className={`inline-flex rounded-full px-3 py-1 font-black ${deliveryStatusTone(item.resend_status)}`}>{deliveryStatusLabel(item.resend_status)}</span></td>
               <td className="p-3"><span className={`inline-flex rounded-full px-3 py-1 font-black ${deliveryStatusTone(item.app_status)}`}>{deliveryStatusLabel(item.app_status)}</span></td>
-              <td className="p-3"><span className={`inline-flex rounded-full px-3 py-1 font-black ${deliveryStatusTone(item.final_interpreted_status)}`}>{deliveryStatusLabel(item.final_interpreted_status)}</span></td>
+              <td className="p-3"><span className={`inline-flex rounded-full px-3 py-1 font-black ${deliveryStatusTone(item.resend_status)}`}>{deliveryStatusLabel(item.resend_status)}</span></td>
+              <td className="p-3"><span className={`inline-flex rounded-full px-3 py-1 font-black ${deliveryStatusTone(item.final_interpreted_status)}`}>{deliveryStatusLabel(item.final_interpreted_status)}</span>{deliveryStatusHelp(item) ? <span className="mt-1 block max-w-[180px] text-[11px] font-bold leading-snug text-slate-500">{deliveryStatusHelp(item)}</span> : null}</td>
               <td className="p-3 font-black">{item.mismatch_warning ? <span className="rounded-full bg-red-100 px-3 py-1 text-red-800">Review</span> : <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-800">OK</span>}</td>
-              <td className="p-3 font-semibold text-slate-600">{item.last_checked_at ? formatDisplayDateTime(item.last_checked_at) : "Not checked"}</td>
+              <td className="p-3 font-semibold text-slate-600">{item.last_event_at ? formatDisplayDateTime(item.last_event_at) : "-"}</td>
+              <td className="p-3 font-semibold text-slate-600"><span className="block">Checked: {item.last_checked_at ? formatDisplayDateTime(item.last_checked_at) : "Not checked"}</span><span className="block">Updated: {item.updated_at ? formatDisplayDateTime(item.updated_at) : "-"}</span></td>
+              <td className="p-3 font-black text-slate-700">{Number(item.event_count || 0)}</td>
               <td className="p-3 font-semibold text-slate-600"><span className="block">Delivered: {item.delivered_at ? formatDisplayDateTime(item.delivered_at) : "-"}</span><span className="block">Delayed: {item.delayed_at ? formatDisplayDateTime(item.delayed_at) : "-"}</span><span className="block">Bounced: {item.bounced_at ? formatDisplayDateTime(item.bounced_at) : "-"}</span></td>
               <td className="p-3 font-semibold text-slate-600">{safeText(item.failure_reason, "None")}</td>
-            </tr>) : <tr><td colSpan="9" className="p-4 text-sm font-bold text-slate-600">No delivery status audit rows yet.</td></tr>}
+            </tr>) : <tr><td colSpan="11" className="p-4 text-sm font-bold text-slate-600">No delivery status audit rows yet.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -3632,6 +3705,15 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   }, [unlocked, activeTab]);
 
   useEffect(() => {
+    if (!unlocked || !activeSubsection) return;
+    const targetId = `bo-section-${activeSubsection}`;
+    const timeoutId = window.setTimeout(() => {
+      document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+    return () => window.clearTimeout(timeoutId);
+  }, [unlocked, activeTab, activeSubsection]);
+
+  useEffect(() => {
     const dataDrivenBackOfficeTabs = [
       "Training Compliance",
       "Export Centre",
@@ -4785,9 +4867,47 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     printWindow.focus();
   }
 
+  function renderNavigationFocusNotice(sectionKey) {
+    const notices = {
+      quotes: {
+        title: "Quotes currently live inside Ellis Operations Centre.",
+        text: "Quote Tracking is already working, but it has not been split into a standalone Sales page yet. Use the button below to open the current quote tracker.",
+        actionLabel: "Open Quote Tracking",
+        action: () => openBackOfficeSection("Ellis Operations Centre", "quotes")
+      },
+      certificates: {
+        title: "Certificates are managed inside Training Records.",
+        text: "Certificate upload, view, download and delete actions remain attached to each training record.",
+        actionLabel: "Open Training Records",
+        action: () => openBackOfficeSection("Training Compliance", "training-records")
+      },
+      reminders: {
+        title: "Reminder activity is currently shown through compliance risk data and logs.",
+        text: "Reminder generation and processing are still operational workflows. This navigation item keeps the area discoverable before a dedicated reminders panel is split out.",
+        actionLabel: "Open Compliance",
+        action: () => openBackOfficeSection("Ava Compliance Centre")
+      },
+      "agent-knowledge": {
+        title: "Agent Knowledge is currently stored in the Mia Knowledge Base workspace.",
+        text: "The knowledge base and guardrails remain together until Stage 3 decides whether to split them.",
+        actionLabel: "Open Mia Knowledge Base",
+        action: () => openBackOfficeSection("Mia Knowledge Base", "mia-knowledge-base")
+      }
+    };
+    const notice = notices[sectionKey];
+    if (!notice) return null;
+    return (
+      <section id={`bo-section-${sectionKey}`} className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-5 text-blue-950 shadow-sm">
+        <h3 className="text-xl font-black">{notice.title}</h3>
+        <p className="mt-2 text-sm font-semibold leading-relaxed">{notice.text}</p>
+        <button type="button" onClick={notice.action} className="mt-4 rounded-xl bg-slate-950 px-5 py-3 text-sm font-black text-white">{notice.actionLabel}</button>
+      </section>
+    );
+  }
+
   function renderTrainingComplianceExportTools() {
     return (
-      <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+      <section id="bo-section-exports" className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-sm font-black uppercase tracking-[0.18em] text-emerald-700">Exports</p>
@@ -4984,16 +5104,16 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                 const isActiveGroup = group.label === activeNavigationGroup.label;
                 return (
                   <div key={group.label} className="min-w-[220px] lg:min-w-0">
-                    <button type="button" onClick={() => setActiveTab(group.defaultTab)} className={`w-full rounded-xl px-4 py-3 text-left text-sm font-black transition ${isActiveGroup ? "bg-emerald-400 text-slate-950" : "text-white hover:bg-white/10"}`}>
+                    <button type="button" onClick={() => openBackOfficeSection(group.defaultTab)} className={`w-full rounded-xl px-4 py-3 text-left text-sm font-black transition ${isActiveGroup ? "bg-emerald-400 text-slate-950" : "text-white hover:bg-white/10"}`}>
                       {group.label}
                     </button>
                     {isActiveGroup && group.items.length > 1 ? (
                       <div className="mt-2 grid gap-1 rounded-xl bg-slate-950/35 p-2">
                         {group.items.map((item) => {
-                          const primaryActiveItem = group.items.find((candidate) => candidate.tab === activeTab);
+                          const primaryActiveItem = group.items.find((candidate) => candidate.tab === activeTab && (activeSubsection ? candidate.subsection === activeSubsection : true)) || group.items.find((candidate) => candidate.tab === activeTab);
                           const isActiveItem = primaryActiveItem?.label === item.label;
                           return (
-                            <button key={`${group.label}-${item.label}-${item.tab}`} type="button" onClick={() => setActiveTab(item.tab)} className={`rounded-lg px-3 py-2 text-left text-xs font-bold transition ${isActiveItem ? "bg-white text-slate-950" : "text-slate-200 hover:bg-white/10 hover:text-white"}`}>
+                            <button key={`${group.label}-${item.label}-${item.tab}`} type="button" onClick={() => openBackOfficeSection(item.tab, item.subsection || "")} className={`rounded-lg px-3 py-2 text-left text-xs font-bold transition ${isActiveItem ? "bg-white text-slate-950" : "text-slate-200 hover:bg-white/10 hover:text-white"}`}>
                               {item.label}
                             </button>
                           );
@@ -5217,8 +5337,9 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
               <div>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <h2 className="text-2xl font-black sm:text-3xl">Training Compliance</h2>
-                  <button type="button" onClick={() => setActiveTab("Reports & Exports")} className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-black text-white">Open Reports & Exports</button>
+                  <button type="button" onClick={() => openBackOfficeSection("Reports & Exports")} className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-black text-white">Open Reports & Exports</button>
                 </div>
+                {renderNavigationFocusNotice(activeSubsection)}
                 <div className="mt-6 grid gap-4 md:grid-cols-5">
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm"><p className="text-sm font-semibold text-slate-500">Organisations</p><p className="mt-2 text-3xl font-black">{trainingSummary.organisations}</p></div>
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm"><p className="text-sm font-semibold text-slate-500">Members/staff</p><p className="mt-2 text-3xl font-black">{trainingSummary.members}</p></div>
@@ -5227,7 +5348,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                   <div className="rounded-2xl border border-red-200 bg-red-50 p-5 shadow-sm"><p className="text-sm font-semibold text-red-700">Expired</p><p className="mt-2 text-3xl font-black text-red-700">{trainingSummary.expired}</p></div>
                 </div>
 
-                <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <section id="bo-section-risks" className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <p className="text-sm font-black uppercase tracking-[0.18em] text-emerald-700">Compliance risk dashboard</p>
@@ -5251,7 +5372,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                 </section>
 
                 <div className="mt-8 grid gap-6">
-                  <section className="rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                  <section id="bo-section-organisations" className="rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
                     <h3 className="text-xl font-black">Organisations</h3>
                     <form onSubmit={saveTrainingOrganisation} className="mt-4 grid min-w-0 gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.9fr)]">
                       <input name="name" value={tcOrgForm.name} onChange={updateTcOrgForm} className="min-w-0 rounded-xl border border-slate-200 p-3" placeholder="Organisation name" required />
@@ -5293,7 +5414,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                     </div>
                   </section>
 
-                  <section className="rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                  <section id="bo-section-training-records" className="rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
                     <h3 className="text-xl font-black">Training records</h3>
                     <form onSubmit={saveTrainingRecord} className="mt-4 grid min-w-0 gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.8fr)_auto]">
                       <select name="organisation_id" value={tcRecordForm.organisation_id} onChange={updateTcRecordForm} className="min-w-0 rounded-xl border border-slate-200 p-3" required><option value="">Organisation</option>{tcOrganisations.map((org) => <option key={org.id} value={org.id}>{org.name}</option>)}</select>
@@ -5365,7 +5486,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                   <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-xs font-bold text-slate-500">Missing records</p><p className="mt-2 text-3xl font-black">{missingTrainingMembers.length}</p></div>
                 </div>
 
-                <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-950 p-5 text-white shadow-sm sm:p-6">
+                <div id="bo-section-reports" className="mt-6 rounded-2xl border border-slate-200 bg-slate-950 p-5 text-white shadow-sm sm:p-6">
                   <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
                     <div>
                       <h3 className="text-2xl font-black">Council-ready report library</h3>
@@ -5434,7 +5555,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
 
                 {renderTrainingComplianceExportTools()}
 
-                <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm sm:p-6">
+                <section id="bo-section-report-history" className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm sm:p-6">
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div>
                       <p className="text-sm font-black uppercase tracking-[0.18em] text-emerald-700">Report history</p>
@@ -6233,7 +6354,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                     </div>
                   </div>
 
-                  <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <section id="bo-section-inbox" className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <h3 className="text-xl font-black">Ellis Daily Briefing</h3>
@@ -6270,7 +6391,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                     </div>
                   </section>
 
-                  <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <section id="bo-section-crm" className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div>
                         <h3 className="text-xl font-black">CRM Intelligence</h3>
@@ -6308,7 +6429,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                     </div>
                   </section>
 
-                  <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <section id="bo-section-learning" className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div>
                         <h3 className="text-xl font-black">Ellis Learning Dashboard</h3>
@@ -6436,7 +6557,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                     </div>
                   </section>
 
-                  <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <section id="bo-section-quotes" className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                       <div>
                         <h3 className="text-xl font-black">Ellis Review Queue</h3>
@@ -6563,6 +6684,8 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                     <button type="button" onClick={() => loadOpportunityManagement({ quiet: false })} disabled={opportunityBusy === "loading"} className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-black text-white disabled:opacity-60">{opportunityBusy === "loading" ? "Refreshing..." : "Refresh Pipeline"}</button>
                   </div>
 
+                  {renderNavigationFocusNotice(activeSubsection)}
+
                   <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
                     {[
                       ["Open", opportunityMetrics.total_open || 0, "bg-slate-50 text-slate-800"],
@@ -6575,7 +6698,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                     ].map(([label, value, style]) => <div key={label} className={`rounded-2xl border border-slate-200 p-4 ${style}`}><p className="text-xs font-black uppercase">{label}</p><p className="mt-2 text-2xl font-black">{value}</p></div>)}
                   </div>
 
-                  <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <section id="bo-section-opportunities" className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                     <h3 className="text-xl font-black">Ellis Insights</h3>
                     <div className="mt-4 grid gap-2">
                       {opportunityInsights.length ? opportunityInsights.map((insight, index) => <p key={`${insight}-${index}`} className="rounded-xl bg-amber-50 p-4 text-sm font-bold text-amber-900">{insight}</p>) : <p className="rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-600">No urgent opportunity insights yet.</p>}
@@ -6629,7 +6752,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                   </section>
 
                   <section className="mt-6 grid gap-6 lg:grid-cols-2">
-                    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div id="bo-section-followups" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                       <h3 className="text-xl font-black">Opportunity Follow-Ups</h3>
                       <div className="mt-4 grid gap-3">
                         {safeOpportunityTasks.length ? safeOpportunityTasks.slice(0, 12).map((task) => <article key={task.id} className="rounded-xl bg-slate-50 p-4"><div className="flex flex-wrap gap-2"><span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-black text-blue-800">{safeText(task.status, "New")}</span><span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-700">{safeText(task.assigned_agent, "Mia")}</span></div><p className="mt-3 font-black">{safeText(task.task_title, "Follow-up task")}</p><p className="mt-1 text-xs font-bold text-slate-500">Due: {task.due_date ? formatDisplayDate(task.due_date) : "Not set"}</p></article>) : <p className="rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-600">No opportunity follow-up tasks yet.</p>}
@@ -6744,7 +6867,9 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                     <div className="rounded-2xl border border-slate-200 bg-blue-50 p-5"><p className="text-xs font-black uppercase text-blue-700">Lead enquiries</p><p className="mt-2 text-3xl font-black">{miaLeadQuestions.length}</p></div>
                   </div>
 
-                  <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                  {renderNavigationFocusNotice(activeSubsection)}
+
+                  <section id="bo-section-guardrails" className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
                     <h3 className="text-xl font-black">Settings / Guardrails</h3>
                     <div className="mt-4 grid gap-3 text-sm font-semibold leading-relaxed text-slate-700 lg:grid-cols-2">
                       <p className="rounded-xl bg-white p-4">Mia uses approved knowledge base content only. She must not invent services, prices, dates, accreditations, availability or certificate rules.</p>
@@ -6752,7 +6877,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                     </div>
                   </section>
 
-                  <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <section id="bo-section-mia-knowledge-base" className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                     <h3 className="text-xl font-black">Knowledge Base Entries</h3>
                     <form onSubmit={saveMiaKnowledgeEntry} className="mt-5 grid gap-4 rounded-2xl bg-slate-50 p-4">
                       <div className="grid gap-4 md:grid-cols-3">

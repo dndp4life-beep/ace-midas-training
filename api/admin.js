@@ -9,7 +9,8 @@ const defaultCourses = [
   { name: "MiDAS Standard", validity_months: 48 },
   { name: "MiDAS Accessible", validity_months: 48 },
   { name: "Children's Transport First Aid", validity_months: 36 },
-  { name: "First Aid at Work", validity_months: 36 }
+  { name: "First Aid at Work", validity_months: 36 },
+  { name: "Emergency First Aid at Work", validity_months: 36 }
 ];
 
 function getSupabaseAdminClient() {
@@ -54,7 +55,7 @@ const theoBookingKnowledge = {
     "Final dates, availability, payment links and booking confirmation are only issued after admin approval."
   ],
   information_needed: ["organisation name", "contact name/email", "course required", "number of attendees", "location", "preferred timeframe", "refresher or full training", "urgent expiry deadline"],
-  course_categories: ["MiDAS Standard", "MiDAS Accessible", "PATS Standard", "PATS Accessible", "First Aid at Work", "Children's Transport First Aid"],
+  course_categories: ["MiDAS Standard", "MiDAS Accessible", "PATS Standard", "PATS Accessible", "First Aid at Work", "Emergency First Aid at Work", "Children's Transport First Aid"],
   group_booking_explanation: "Group bookings can be useful when several staff need the same training or refresher route. Theo may explain configured website group value and discounts, but cannot invent custom discounts.",
   onsite_training_explanation: "Onsite training may be possible depending on course type, attendee numbers, suitable facilities, location and trainer availability.",
   training_page_url: theoTrainingPageUrl,
@@ -66,7 +67,8 @@ const theoPricingRules = [
   { title: "MiDAS Accessible", price: "£210", aliases: ["midas accessible", "accessible midas"] },
   { title: "PATS Standard", price: "£125", aliases: ["pats standard", "pats"] },
   { title: "PATS Accessible", price: "£155-£185", aliases: ["pats accessible", "accessible pats"] },
-  { title: "First Aid at Work", price: "£205-£225", aliases: ["first aid at work", "faw"] },
+  { title: "First Aid at Work", price: "£220-£275", aliases: ["first aid at work", "faw"] },
+  { title: "Emergency First Aid at Work", price: "£88-£110", aliases: ["emergency first aid at work", "efaw"] },
   { title: "Children's Transport First Aid", price: "£95-£135", aliases: ["children's transport first aid", "childrens transport first aid", "ctfa"] }
 ];
 const theoGroupDiscountRules = [
@@ -80,8 +82,8 @@ const niaAudiences = ["schools", "academy trusts", "councils", "SEND transport p
 const niaDefaultCta = "Visit the training page or contact ACE MiDAS Training to discuss training support.";
 const prospectSelect = "id, organisation_name, website, location, region, sector, likely_training_need, recommended_service, contact_email, phone, decision_maker_name, source_url, notes, outreach_brief, priority, score, relevance_reason, review_status, status, do_not_contact, researched_by, assigned_to, first_contact_sent_at, follow_up_1_scheduled_for, follow_up_2_scheduled_for, last_contacted_at, created_by_agent, pipeline_stage, opportunity_id, created_at, updated_at";
 const followUpTaskSelect = "id, prospect_id, agent_name, task_type, status, scheduled_for, completed_at, notes, created_at";
-const miaOutreachQueueSelect = "id, prospect_id, outreach_type, recipient_email, email_subject, email_html, status, autosend_enabled, send_attempted_at, sent_at, failure_reason, provider_response, linked_log_id, sender_email, reply_to_email, bcc_emails, resend_email_id, delivery_status, agent_email_outbox_id, created_at, updated_at";
-const agentEmailOutboxSelect = "id, agent_key, agent_name, purpose, recipient_email, sender_email, reply_to_email, bcc_emails, subject, html_body, status, resend_email_id, provider_response, failure_reason, prospect_id, opportunity_id, reply_intake_id, training_record_id, member_id, organisation_id, sent_at, last_checked_at, created_at, updated_at";
+const miaOutreachQueueSelect = "id, prospect_id, outreach_type, recipient_email, email_subject, email_html, status, autosend_enabled, send_attempted_at, sent_at, failure_reason, provider_response, linked_log_id, sender_email, reply_to_email, bcc_emails, resend_email_id, delivery_status, latest_status, all_events, delivered_at, bounced_at, delayed_at, last_checked_at, agent_email_outbox_id, created_at, updated_at";
+const agentEmailOutboxSelect = "id, agent_key, agent_name, purpose, recipient_email, sender_email, reply_to_email, bcc_emails, subject, html_body, status, latest_status, all_events, resend_email_id, provider_response, failure_reason, prospect_id, opportunity_id, reply_intake_id, training_record_id, member_id, organisation_id, sent_at, delivered_at, bounced_at, delayed_at, last_checked_at, created_at, updated_at";
 const roryResearchRunSelect = "id, run_type, status, search_theme, provider, provider_task_id, provider_task_url, prospects_found, prospects_saved, duplicates_skipped, errors, started_at, completed_at";
 const miaKnowledgeBaseSelect = "id, category, title, question, approved_answer, keywords, source, status, last_updated, priority, confidence_threshold, created_at, updated_at";
 const miaVisitorQuestionSelect = "id, visitor_question, mia_answer, matched_knowledge_base_entries, confidence_score, was_answered, needs_review, visitor_name, organisation, email, phone, course_interest, number_of_participants, location, preferred_dates, urgency, notes, status, created_at, updated_at";
@@ -105,6 +107,7 @@ const ellisAlertSettingsSelect = "id, setting_key, alerts_enabled, notify_by_ema
 const opportunitySelect = "*";
 const opportunityQuoteSelect = "id, opportunity_id, quote_reference, quoted_value, quote_status, sent_at, expires_at, follow_up_due, notes, created_at, updated_at";
 const businessAnalystQuerySelect = "id, user_id, question, answer_summary, data_sources_used, confidence, metadata, created_at";
+const deliveryStatusAuditSelect = "id, mia_outreach_queue_id, agent_email_outbox_id, resend_email_id, recipient, subject, resend_status, app_status, final_interpreted_status, mismatch_warning, last_checked_at, delivered_at, bounced_at, delayed_at, failure_reason, event_count, last_event_at, all_events, sent_at, updated_at";
 const opportunityEmailLinkSelect = "id, opportunity_id, email_triage_id, reply_classification, suggested_stage, analysis_metadata, created_at";
 const opportunityResponseDraftSelect = "id, opportunity_id, email_triage_id, agent_name, draft_subject, draft_body, suggested_stage, suggested_follow_up_date, communication_type, confidence_score, similarity_score, trust_score, similar_approved_replies, automation_eligible, eligibility_reason, status, created_at, updated_at";
 const miaCommunicationSettingsSelect = "id, setting_key, approval_level, trust_threshold, confidence_threshold, automation_enabled, approved_categories, paused, created_at, updated_at";
@@ -311,6 +314,70 @@ async function retrieveResendEmail(resendEmailId) {
   return { status: response.status, body };
 }
 
+async function recordResendRetrievedStatus(supabase, providerBody, fallback = {}) {
+  if (!supabase || !providerBody) return null;
+  const resendEmailId = providerBody.id || fallback.resend_email_id || fallback.resendEmailId || "";
+  if (!resendEmailId) return null;
+  const recipients = emailList(providerBody.to?.length ? providerBody.to : fallback.recipient_email || fallback.recipient || "");
+  const status = providerBody.last_event || providerBody.status || fallback.status || "accepted";
+  const subject = providerBody.subject || fallback.subject || "";
+  const createdAt = providerBody.created_at || providerBody.createdAt || fallback.sent_at || fallback.created_at || new Date().toISOString();
+  const results = [];
+  for (const recipient of recipients) {
+    const { data, error } = await supabase.rpc("record_resend_delivery_event", {
+      raw_event: {
+        type: status,
+        source: "admin_resend_retrieve_email",
+        data: {
+          id: resendEmailId,
+          email_id: resendEmailId,
+          recipient,
+          to: [recipient],
+          subject,
+          created_at: createdAt,
+          last_event: providerBody.last_event || providerBody.status || null,
+          resend_email: providerBody
+        }
+      }
+    });
+    if (error) {
+      console.error("Resend delivery event record error:", error);
+      results.push({ recipient, error: error.message });
+    } else {
+      results.push({ recipient, event_id: data });
+    }
+  }
+  return results;
+}
+
+async function loadDeliveryStatusAudit(supabase, limit = 500) {
+  const { data, error } = await supabase
+    .from("delivery_status_audit")
+    .select(deliveryStatusAuditSelect)
+    .order("sent_at", { ascending: false, nullsFirst: false })
+    .limit(limit);
+  if (error) {
+    console.error("Delivery status audit load error:", error);
+    return [];
+  }
+  return data || [];
+}
+
+async function reconcileDeliveryStatusAudit(supabase, payload = {}) {
+  const limit = Math.min(Math.max(Number(payload.limit || 100), 1), 100);
+  const resendEmailIds = Array.isArray(payload.resend_email_ids) ? payload.resend_email_ids.filter(Boolean) : [];
+  const { data, error } = await supabase.functions.invoke("reconcile-resend-delivery-status", {
+    body: resendEmailIds.length ? { resend_email_ids: resendEmailIds, limit } : { limit }
+  });
+  if (error) throw new Error(error.message || "Delivery reconciliation failed.");
+  const deliveryStatusAudit = await loadDeliveryStatusAudit(supabase);
+  return { success: true, reconciliation: data || {}, deliveryStatusAudit };
+}
+
+async function getDeliveryStatusAudit(supabase) {
+  return { success: true, deliveryStatusAudit: await loadDeliveryStatusAudit(supabase) };
+}
+
 function resendDeliveryStatus(providerBody, fallback = "accepted") {
   const value = String(providerBody?.last_event || providerBody?.status || fallback || "accepted").toLowerCase();
   if (value.includes("deliver")) return "delivered";
@@ -423,7 +490,7 @@ async function ensureCourses(supabase) {
 
 async function getTrainingCompliance(supabase) {
   const courses = await ensureCourses(supabase);
-  const [organisationsResult, membersResult, recordsResult, evidenceResult, remindersResult, reminderLogsResult, agentLogsResult, prospectsResult, followUpsResult, roryRunsResult, repliesResult, inboundResult, contentDraftsResult, miaOutreachResult, agentEmailOutboxResult] = await Promise.all([
+  const [organisationsResult, membersResult, recordsResult, evidenceResult, remindersResult, reminderLogsResult, agentLogsResult, prospectsResult, followUpsResult, roryRunsResult, repliesResult, inboundResult, contentDraftsResult, miaOutreachResult, agentEmailOutboxResult, deliveryStatusAuditResult] = await Promise.all([
     supabase.from("organisations").select("id, name, contact_name, contact_email, phone, created_at").order("name", { ascending: true }),
     supabase.from("members").select("id, organisation_id, full_name, email, role, created_at").order("full_name", { ascending: true }),
     supabase.from("training_records").select("id, member_id, course_id, date_completed, expiry_date, status, created_at").order("expiry_date", { ascending: true }),
@@ -438,16 +505,28 @@ async function getTrainingCompliance(supabase) {
     supabase.from("inbound_messages").select("id, source, from_name, from_email, organisation, subject, message_body, classification, assigned_agent, status, action_taken, approval_required, created_at, updated_at").order("created_at", { ascending: false }).limit(100),
     supabase.from("content_drafts").select(contentDraftSelect).order("created_at", { ascending: false }).limit(100),
     supabase.from("mia_outreach_queue").select(miaOutreachQueueSelect).order("updated_at", { ascending: false }).limit(500),
-    supabase.from("agent_email_outbox").select(agentEmailOutboxSelect).order("created_at", { ascending: false }).limit(500)
+    supabase.from("agent_email_outbox").select(agentEmailOutboxSelect).order("created_at", { ascending: false }).limit(500),
+    supabase.from("delivery_status_audit").select(deliveryStatusAuditSelect).order("sent_at", { ascending: false, nullsFirst: false }).limit(500)
   ]);
   const error = organisationsResult.error || membersResult.error || recordsResult.error;
   if (error) throw error;
-  if (prospectsResult.error) console.error("Prospects load error:", prospectsResult.error);
-  if (followUpsResult.error) console.error("Follow-up tasks load error:", followUpsResult.error);
-  if (roryRunsResult.error) console.error("Rory research runs load error:", roryRunsResult.error);
-  if (miaOutreachResult.error) console.error("Mia outreach queue load error:", miaOutreachResult.error);
-  if (agentEmailOutboxResult.error) console.error("Agent email outbox load error:", agentEmailOutboxResult.error);
-  const contentDrafts = contentDraftsResult.error ? [] : await Promise.all((contentDraftsResult.data || []).map(async (draft) => {
+  const optionalResult = (result) => result || { data: [], error: null };
+  const safeProspectsResult = optionalResult(prospectsResult);
+  const safeFollowUpsResult = optionalResult(followUpsResult);
+  const safeRoryRunsResult = optionalResult(roryRunsResult);
+  const safeRepliesResult = optionalResult(repliesResult);
+  const safeInboundResult = optionalResult(inboundResult);
+  const safeContentDraftsResult = optionalResult(contentDraftsResult);
+  const safeMiaOutreachResult = optionalResult(miaOutreachResult);
+  const safeAgentEmailOutboxResult = optionalResult(agentEmailOutboxResult);
+  const safeDeliveryStatusAuditResult = optionalResult(deliveryStatusAuditResult);
+  if (safeProspectsResult.error) console.error("Prospects load error:", safeProspectsResult.error);
+  if (safeFollowUpsResult.error) console.error("Follow-up tasks load error:", safeFollowUpsResult.error);
+  if (safeRoryRunsResult.error) console.error("Rory research runs load error:", safeRoryRunsResult.error);
+  if (safeMiaOutreachResult.error) console.error("Mia outreach queue load error:", safeMiaOutreachResult.error);
+  if (safeAgentEmailOutboxResult.error) console.error("Agent email outbox load error:", safeAgentEmailOutboxResult.error);
+  if (safeDeliveryStatusAuditResult.error) console.error("Delivery status audit load error:", safeDeliveryStatusAuditResult.error);
+  const contentDrafts = safeContentDraftsResult.error ? [] : await Promise.all((safeContentDraftsResult.data || []).map(async (draft) => {
     if (!draft.image_path) return { ...draft, image_url: "" };
     const { data } = await supabase.storage.from(contentAssetBucket).createSignedUrl(draft.image_path, 3600);
     return { ...draft, image_url: data?.signedUrl || "" };
@@ -462,14 +541,15 @@ async function getTrainingCompliance(supabase) {
     reminders: remindersResult.error ? [] : remindersResult.data || [],
     reminderLogs: reminderLogsResult.error ? [] : reminderLogsResult.data || [],
     agentLogs: agentLogsResult.error ? [] : agentLogsResult.data || [],
-    prospects: prospectsResult.error ? [] : prospectsResult.data || [],
-    followUps: followUpsResult.error ? [] : followUpsResult.data || [],
-    roryRuns: roryRunsResult.error ? [] : roryRunsResult.data || [],
-    replies: repliesResult.error ? [] : repliesResult.data || [],
-    inboundMessages: inboundResult.error ? [] : inboundResult.data || [],
+    prospects: safeProspectsResult.error ? [] : safeProspectsResult.data || [],
+    followUps: safeFollowUpsResult.error ? [] : safeFollowUpsResult.data || [],
+    roryRuns: safeRoryRunsResult.error ? [] : safeRoryRunsResult.data || [],
+    replies: safeRepliesResult.error ? [] : safeRepliesResult.data || [],
+    inboundMessages: safeInboundResult.error ? [] : safeInboundResult.data || [],
     contentDrafts,
-    miaOutreachQueue: miaOutreachResult.error ? [] : miaOutreachResult.data || [],
-    agentEmailOutbox: agentEmailOutboxResult.error ? [] : agentEmailOutboxResult.data || [],
+    miaOutreachQueue: safeMiaOutreachResult.error ? [] : safeMiaOutreachResult.data || [],
+    agentEmailOutbox: safeAgentEmailOutboxResult.error ? [] : safeAgentEmailOutboxResult.data || [],
+    deliveryStatusAudit: safeDeliveryStatusAuditResult.error ? [] : safeDeliveryStatusAuditResult.data || [],
     counts: {
       organisations: organisationsResult.data?.length || 0,
       members: membersResult.data?.length || 0,
@@ -479,14 +559,15 @@ async function getTrainingCompliance(supabase) {
       reminders: remindersResult.error ? 0 : remindersResult.data?.length || 0,
       reminderLogs: reminderLogsResult.error ? 0 : reminderLogsResult.data?.length || 0,
       agentLogs: agentLogsResult.error ? 0 : agentLogsResult.data?.length || 0,
-      prospects: prospectsResult.error ? 0 : prospectsResult.data?.length || 0,
-      followUps: followUpsResult.error ? 0 : followUpsResult.data?.length || 0,
-      roryRuns: roryRunsResult.error ? 0 : roryRunsResult.data?.length || 0,
-      replies: repliesResult.error ? 0 : repliesResult.data?.length || 0,
-      inboundMessages: inboundResult.error ? 0 : inboundResult.data?.length || 0,
-      contentDrafts: contentDraftsResult.error ? 0 : contentDraftsResult.data?.length || 0,
-      miaOutreachQueue: miaOutreachResult.error ? 0 : miaOutreachResult.data?.length || 0,
-      agentEmailOutbox: agentEmailOutboxResult.error ? 0 : agentEmailOutboxResult.data?.length || 0
+      prospects: safeProspectsResult.error ? 0 : safeProspectsResult.data?.length || 0,
+      followUps: safeFollowUpsResult.error ? 0 : safeFollowUpsResult.data?.length || 0,
+      roryRuns: safeRoryRunsResult.error ? 0 : safeRoryRunsResult.data?.length || 0,
+      replies: safeRepliesResult.error ? 0 : safeRepliesResult.data?.length || 0,
+      inboundMessages: safeInboundResult.error ? 0 : safeInboundResult.data?.length || 0,
+      contentDrafts: safeContentDraftsResult.error ? 0 : safeContentDraftsResult.data?.length || 0,
+      miaOutreachQueue: safeMiaOutreachResult.error ? 0 : safeMiaOutreachResult.data?.length || 0,
+      agentEmailOutbox: safeAgentEmailOutboxResult.error ? 0 : safeAgentEmailOutboxResult.data?.length || 0,
+      deliveryStatusAudit: safeDeliveryStatusAuditResult.error ? 0 : safeDeliveryStatusAuditResult.data?.length || 0
     }
   };
 }
@@ -3474,7 +3555,7 @@ async function saveInboundMessage(supabase, payload) {
 function extractReplyDetails(message) {
   const text = String(message || "");
   const lower = text.toLowerCase();
-  const course = ["MiDAS Accessible", "MiDAS Standard", "PATS Accessible", "PATS Standard", "First Aid at Work", "First Aid"].find((name) => lower.includes(name.toLowerCase())) || "";
+  const course = ["MiDAS Accessible", "MiDAS Standard", "PATS Accessible", "PATS Standard", "Emergency First Aid at Work", "First Aid at Work", "First Aid"].find((name) => lower.includes(name.toLowerCase())) || "";
   const attendeesMatch = lower.match(/(\d+)\s*(attendees|delegates|staff|people|drivers|passenger assistants|pas)/i);
   const dateMatches = text.match(/\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}\s+[A-Za-z]+\s+\d{4}|Monday|Tuesday|Wednesday|Thursday|Friday|next week|this week|asap|urgent)\b/gi) || [];
   const locationMatch = text.match(/\b(in|at|near)\s+([A-Z][A-Za-z\s]{2,40})(?:[,.]|\s|$)/);
@@ -5140,7 +5221,7 @@ async function runAvaMiaWorkflow(supabase) {
 }
 
 function cleanMiaText(value) {
-  return String(value ?? "").replace(/Â£/g, "£").replace(/\s+/g, " ").trim();
+  return String(value ?? "").replace(/£/g, "£").replace(/\s+/g, " ").trim();
 }
 
 function uniqueMiaValues(values) {
@@ -5354,6 +5435,8 @@ export default async function handler(req, res) {
       "send-mia-outreach-queue-item": sendMiaOutreachQueueItem,
       "get-mia-outreach-email-details": getMiaOutreachEmailDetails,
       "get-agent-email-details": getAgentEmailDetails,
+      "get-delivery-status-audit": getDeliveryStatusAudit,
+      "reconcile-delivery-status-audit": reconcileDeliveryStatusAudit,
       "preview-prospect-mia-email": previewProspectMiaEmail,
       "mark-prospect-do-not-contact": markProspectDoNotContact,
       "delete-prospect": deleteProspect,

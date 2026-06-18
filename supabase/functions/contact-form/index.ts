@@ -23,7 +23,8 @@ const prices = [
   { title: "MiDAS Accessible", price: "£210", aliases: ["midas accessible", "accessible midas"] },
   { title: "PATS Standard", price: "£125", aliases: ["pats standard", "pats"] },
   { title: "PATS Accessible", price: "£155-£185", aliases: ["pats accessible", "accessible pats"] },
-  { title: "First Aid at Work", price: "£205-£225", aliases: ["first aid at work", "faw"] },
+  { title: "First Aid at Work", price: "£220-£275", aliases: ["first aid at work", "faw"] },
+  { title: "Emergency First Aid at Work", price: "£88-£110", aliases: ["emergency first aid at work", "efaw"] },
   { title: "Children's Transport First Aid", price: "£95-£135", aliases: ["children's transport first aid", "childrens transport first aid", "ctfa"] },
 ];
 
@@ -93,7 +94,7 @@ function estimate(message: string) {
 
 function replyDetails(message: string) {
   const lower = message.toLowerCase();
-  const course = ["MiDAS Accessible", "MiDAS Standard", "PATS Accessible", "PATS Standard", "First Aid at Work", "First Aid"].find((name) => lower.includes(name.toLowerCase())) || "";
+  const course = ["MiDAS Accessible", "MiDAS Standard", "PATS Accessible", "PATS Standard", "Emergency First Aid at Work", "First Aid at Work", "First Aid"].find((name) => lower.includes(name.toLowerCase())) || "";
   const attendees = lower.match(/(\d+)\s*(attendees|delegates|staff|people|drivers|passenger assistants|pas)/i)?.[1] || "";
   const preferred_dates = [...new Set(message.match(/\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}\s+[A-Za-z]+\s+\d{4}|Monday|Tuesday|Wednesday|Thursday|Friday|next week|this week|asap|urgent)\b/gi) || [])].join(", ");
   const location = message.match(/\b(in|at|near)\s+([A-Z][A-Za-z\s]{2,40})(?:[,.]|\s|$)/)?.[2]?.trim() || "";
