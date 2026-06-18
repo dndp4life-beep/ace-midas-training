@@ -4969,10 +4969,6 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
 
   async function saveMediaSlot(slot) {
     const media = getMediaSlot(mediaSettings, slot);
-    if (!supabase) {
-      showMessage("success", `${media.label} saved locally. Supabase is not configured yet.`);
-      return;
-    }
     const payload = {
       slot,
       image_url: media.imageUrl,
@@ -4982,11 +4978,17 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
       zoom: Number(media.zoom ?? 1),
       updated_at: new Date().toISOString()
     };
-    const { error } = await supabase.from("site_media_settings").upsert(payload, { onConflict: "slot" });
-    if (error) {
-      showMessage("success", `${media.label} saved locally. Supabase table site_media_settings is not ready yet.`);
-      setActivity((current) => [`Media setting saved locally: ${media.label}`, ...current]);
+    const { response, result } = await callAdminAction("save-media-setting", { media: payload });
+    if (!response.ok) {
+      showMessage("error", result.error || `${media.label} could not be saved.`);
       return;
+    }
+    if (Array.isArray(result.media_settings)) {
+      const nextSettings = result.media_settings.reduce((acc, row) => {
+        if (DEFAULT_MEDIA_SETTINGS[row.slot]) acc[row.slot] = { ...DEFAULT_MEDIA_SETTINGS[row.slot], ...mapMediaRow(row) };
+        return acc;
+      }, {});
+      setMediaSettings((current) => ({ ...current, ...nextSettings }));
     }
     setActivity((current) => [`Media setting saved: ${media.label}`, ...current]);
     showMessage("success", `${media.label} saved.`);
@@ -4994,20 +4996,23 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
 
   async function uploadMediaFile(slot, file) {
     if (!file) return;
-    if (!supabase?.storage) {
-      showMessage("error", "Supabase Storage is not configured. Use an image URL for now.");
+    if (!file.type.startsWith("image/")) {
+      showMessage("error", "Only image uploads are allowed.");
       return;
     }
-    const extension = file.name.split(".").pop() || "jpg";
-    const filePath = `${slot}/${Date.now()}.${extension}`;
-    const { error } = await supabase.storage.from("site-media").upload(filePath, file, { upsert: true });
-    if (error) {
-      showMessage("error", `${error.message || "Upload failed."} Use an image URL if the site-media bucket is not available yet.`);
+    try {
+      const fileData = await fileToBase64(file);
+      const { response, result } = await callAdminAction("upload-site-media", { slot, fileName: file.name, fileType: file.type, fileData });
+      if (!response.ok || !result.image_url) {
+        showMessage("error", result.error || "Image upload failed.");
+        return;
+      }
+      updateMediaField(slot, "imageUrl", result.image_url);
+      showMessage("success", "Image uploaded. Save the media slot to keep it.");
+    } catch (error) {
+      showMessage("error", error.message || "Image upload failed.");
       return;
     }
-    const { data } = supabase.storage.from("site-media").getPublicUrl(filePath);
-    updateMediaField(slot, "imageUrl", data.publicUrl);
-    showMessage("success", "Image uploaded. Save the media slot to keep it.");
   }
 
   const premiumReportCards = [
@@ -7229,12 +7234,9 @@ export default function App() {
 
   useEffect(() => {
     async function loadMediaSettings() {
-      if (!supabase) return;
-      const { data, error } = await supabase
-        .from("site_media_settings")
-        .select("slot, image_url, alt_text, object_position_x, object_position_y, zoom");
-      if (error || !data) return;
-      const nextSettings = data.reduce((acc, row) => {
+      const { response, result } = await callAdminAction("get-media-settings");
+      if (!response.ok || !Array.isArray(result.media_settings)) return;
+      const nextSettings = result.media_settings.reduce((acc, row) => {
         if (DEFAULT_MEDIA_SETTINGS[row.slot]) acc[row.slot] = { ...DEFAULT_MEDIA_SETTINGS[row.slot], ...mapMediaRow(row) };
         return acc;
       }, {});

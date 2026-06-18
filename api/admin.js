@@ -30,8 +30,10 @@ const trainingNotificationTypes = [
 
 const evidenceBucket = "training-evidence";
 const contentAssetBucket = "content-assets";
+const siteMediaBucket = "site-media";
 const allowedEvidenceTypes = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
 const allowedContentImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+const allowedSiteMediaTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 const contentDraftSelect = "id, agent_name, content_type, platform, target_audience, title, content, suggested_visual, call_to_action, hashtags, tone, status, topic, image_prompt, visual_style, image_status, image_path, image_file_name, created_at, used_at";
 const emailSender = process.env.EMAIL_FROM || "ACE MiDAS Training <onboarding@resend.dev>";
 const adminSummaryRecipient = process.env.ADMIN_EMAIL || process.env.NOTIFICATION_EMAIL || "info@ace-midas-training.co.uk";
@@ -2710,6 +2712,53 @@ async function saveSettings(supabase, payload) {
   const verified = await getSettings(supabase);
   if (!verified.settings) throw new Error("Save could not be verified.");
   return { ...verified, updated_at: verified.updated_at || savedAt };
+}
+
+async function getMediaSettings(supabase) {
+  const { data, error } = await supabase
+    .from("site_media_settings")
+    .select("slot, image_url, alt_text, object_position_x, object_position_y, zoom, updated_at")
+    .order("slot", { ascending: true });
+  if (error) throw error;
+  return { success: true, media_settings: data || [] };
+}
+
+async function saveMediaSetting(supabase, payload) {
+  const media = payload?.media || {};
+  const slot = String(media.slot || "").trim();
+  if (!slot) throw new Error("Media slot is required.");
+  const row = {
+    slot,
+    image_url: String(media.image_url || "").trim(),
+    alt_text: String(media.alt_text || "").trim(),
+    object_position_x: Math.max(0, Math.min(100, Math.round(Number(media.object_position_x ?? 50)))),
+    object_position_y: Math.max(0, Math.min(100, Math.round(Number(media.object_position_y ?? 50)))),
+    zoom: Math.max(0.5, Math.min(3, Number(media.zoom ?? 1))),
+    updated_at: new Date().toISOString()
+  };
+  const { error } = await supabase.from("site_media_settings").upsert(row, { onConflict: "slot" });
+  if (error) throw error;
+  const verified = await getMediaSettings(supabase);
+  if (!verified.media_settings.some((item) => item.slot === slot)) throw new Error("Media setting saved but could not be verified.");
+  return { ...verified, success: true, media_setting: verified.media_settings.find((item) => item.slot === slot) };
+}
+
+async function uploadSiteMedia(supabase, payload) {
+  const slot = String(payload?.slot || "").trim();
+  const fileName = String(payload?.fileName || "site-image").replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 120);
+  const fileType = String(payload?.fileType || "").trim();
+  const fileData = String(payload?.fileData || "");
+  if (!slot || !fileData) throw new Error("Media slot and file data are required.");
+  if (!allowedSiteMediaTypes.has(fileType)) throw new Error("Only JPG, PNG, WEBP or GIF images are allowed.");
+  const extension = (fileName.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+  const buffer = Buffer.from(fileData, "base64");
+  if (!buffer.length) throw new Error("Image file could not be read.");
+  if (buffer.length > 8 * 1024 * 1024) throw new Error("Image file is too large. Please use an image under 8MB.");
+  const filePath = `${slot}/${Date.now()}-${crypto.randomBytes(4).toString("hex")}.${extension}`;
+  const { error: uploadError } = await supabase.storage.from(siteMediaBucket).upload(filePath, buffer, { contentType: fileType, upsert: true });
+  if (uploadError) throw uploadError;
+  const { data } = supabase.storage.from(siteMediaBucket).getPublicUrl(filePath);
+  return { success: true, file_path: filePath, image_url: data?.publicUrl || "" };
 }
 
 async function saveOrganisation(supabase, payload) {
@@ -5408,10 +5457,17 @@ export default async function handler(req, res) {
       res.setHeader("Cache-Control", "no-store, max-age=0");
       return res.status(200).json(await getSettings(supabase));
     }
+    if (action === "get-media-settings") {
+      res.setHeader("Cache-Control", "no-store, max-age=0");
+      return res.status(200).json(await getMediaSettings(supabase));
+    }
     const adminSession = readAdminSession(req);
     if (!adminSession || adminSession.role !== "Admin") return res.status(401).json({ error: "Admin session expired. Please unlock the Back Office again." });
     const actions = {
       "save-settings": saveSettings,
+      "get-media-settings": getMediaSettings,
+      "save-media-setting": saveMediaSetting,
+      "upload-site-media": uploadSiteMedia,
       "get-report-history": getReportHistory,
       "save-report-history": saveReportHistory,
       "get-training-compliance": getTrainingCompliance,
