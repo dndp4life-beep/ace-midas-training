@@ -530,17 +530,24 @@ function formatDisplayDate(value) {
 }
 
 function parseDisplayDate(value) {
-  const text = String(value || "").trim();
+  const text = String(value || "")
+    .normalize("NFKC")
+    .replace(/[\u200e\u200f\u202a-\u202e\ufeff]/g, "")
+    .replace(/[／⁄∕]/g, "/")
+    .replace(/[‐‑‒–—]/g, "-")
+    .trim()
+    .replace(/\s+/g, " ");
   if (!text) return "";
-  const ukDate = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (ukDate) {
-    const [, day, month, year] = ukDate;
-    const iso = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  const toIso = (year, month, day) => {
+    const iso = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     const date = new Date(`${iso}T00:00:00`);
-    if (!Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === iso) return iso;
-  }
-  const isoDate = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (isoDate) return text;
+    if (Number.isNaN(date.getTime())) return "";
+    return date.getFullYear() === Number(year) && date.getMonth() + 1 === Number(month) && date.getDate() === Number(day) ? iso : "";
+  };
+  const isoDate = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (isoDate) return toIso(isoDate[1], isoDate[2], isoDate[3]);
+  const ukDate = text.match(/^(\d{1,2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{4})$/);
+  if (ukDate) return toIso(ukDate[3], ukDate[2], ukDate[1]);
   return "";
 }
 
@@ -4150,6 +4157,10 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
       if (name === "date_completed_display") {
         return { ...current, date_completed_display: value, date_completed: parseDisplayDate(value) };
       }
+      if (name === "date_completed") {
+        const parsedDate = parseDisplayDate(value);
+        return { ...current, date_completed: parsedDate, date_completed_display: parsedDate ? formatDisplayDate(parsedDate) : value };
+      }
       const next = { ...current, [name]: value };
       if (name === "organisation_id") next.member_id = "";
       return next;
@@ -4290,10 +4301,22 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
 
   async function saveTrainingRecord(e) {
     e.preventDefault();
-    const organisationId = String(tcRecordForm.organisation_id || "").trim();
-    const memberId = String(tcRecordForm.member_id || "").trim();
-    const courseId = String(tcRecordForm.course_id || "").trim();
-    const completedDate = parseDisplayDate(tcRecordForm.date_completed) || parseDisplayDate(tcRecordForm.date_completed_display);
+    const submitted = new FormData(e.currentTarget);
+    const submittedForm = {
+      organisation_id: String(submitted.get("organisation_id") || tcRecordForm.organisation_id || "").trim(),
+      member_id: String(submitted.get("member_id") || tcRecordForm.member_id || "").trim(),
+      course_id: String(submitted.get("course_id") || tcRecordForm.course_id || "").trim(),
+      date_completed: String(submitted.get("date_completed") || tcRecordForm.date_completed || "").trim(),
+      date_completed_display: String(submitted.get("date_completed_display") || tcRecordForm.date_completed_display || "").trim()
+    };
+    const rawCompletedDate = submittedForm.date_completed_display || submittedForm.date_completed;
+    const completedDate = parseDisplayDate(rawCompletedDate);
+    if (import.meta.env.DEV) {
+      console.debug("Training record form before validation", { state: tcRecordForm, submitted: submittedForm, rawCompletedDate, completedDate });
+    }
+    const organisationId = submittedForm.organisation_id;
+    const memberId = submittedForm.member_id;
+    const courseId = submittedForm.course_id;
     const selectedOrganisation = tcOrganisationMap[organisationId];
     const selectedMember = tcMemberMap[memberId];
     const course = tcCourseMap[courseId];
@@ -4312,10 +4335,10 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     if (!courseId) missingFields.push("course");
     else if (!course) missingFields.push("valid course");
 
-    if (!String(tcRecordForm.date_completed || tcRecordForm.date_completed_display || "").trim()) {
+    if (!rawCompletedDate) {
       missingFields.push("completed date");
     } else if (!completedDate) {
-      missingFields.push("completed date in DD/MM/YYYY format");
+      missingFields.push("completed date in DD/MM/YYYY or YYYY-MM-DD format");
     }
 
     if (missingFields.length) {
@@ -4336,6 +4359,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
       expiry_date: expiryDate,
       status: getTrainingStatus(expiryDate)
     };
+    if (import.meta.env.DEV) console.debug("Training record insert payload", record);
 
     try {
       const { response, result } = await callAdminAction("save-training-record", { record });
