@@ -13,6 +13,10 @@ const defaultCourses = [
   { name: "Emergency First Aid at Work", validity_months: 36 }
 ];
 
+function normaliseCourseName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
 function getSupabaseAdminClient() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -484,10 +488,13 @@ async function scheduleTrainingNotifications(supabase, trainingRecord) {
 async function ensureCourses(supabase) {
   const { data, error } = await supabase.from("courses").select("id, name, validity_months, created_at").order("name", { ascending: true });
   if (error) throw error;
-  if (data?.length) return data;
-  const { data: seeded, error: seedError } = await supabase.from("courses").insert(defaultCourses).select("id, name, validity_months, created_at");
+  const existingCourses = data || [];
+  const existingNames = new Set(existingCourses.map((course) => normaliseCourseName(course.name)).filter(Boolean));
+  const missingCourses = defaultCourses.filter((course) => !existingNames.has(normaliseCourseName(course.name)));
+  if (!missingCourses.length) return existingCourses;
+  const { data: seeded, error: seedError } = await supabase.from("courses").insert(missingCourses).select("id, name, validity_months, created_at");
   if (seedError) throw seedError;
-  return (seeded || []).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  return [...existingCourses, ...(seeded || [])].sort((a, b) => String(a.name).localeCompare(String(b.name)));
 }
 
 async function getTrainingCompliance(supabase) {
@@ -2820,7 +2827,12 @@ async function saveTrainingRecord(supabase, payload) {
     expiry_date: String(record.expiry_date || ""),
     status: String(record.status || "valid")
   };
-  if (!row.member_id || !row.course_id || !row.date_completed || !row.expiry_date) throw new Error("Staff member, course and completed date are required.");
+  const missingFields = [];
+  if (!row.member_id) missingFields.push("staff member");
+  if (!row.course_id) missingFields.push("course");
+  if (!row.date_completed) missingFields.push("completed date");
+  if (!row.expiry_date) missingFields.push("expiry date");
+  if (missingFields.length) throw new Error(`Missing required field(s): ${missingFields.join(", ")}.`);
   const { data, error } = await supabase.from("training_records").insert(row).select("id, member_id, course_id, date_completed, expiry_date, status, created_at").single();
   if (error) throw error;
   const notifications = await scheduleTrainingNotifications(supabase, data);

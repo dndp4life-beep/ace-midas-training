@@ -544,6 +544,35 @@ function parseDisplayDate(value) {
   return "";
 }
 
+function normaliseCourseName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function getDedupedCourseOptions(courses) {
+  const byName = new Map();
+  (courses || []).forEach((course) => {
+    const key = normaliseCourseName(course?.name);
+    if (!key) return;
+    const existing = byName.get(key);
+    if (!existing) {
+      byName.set(key, course);
+      return;
+    }
+    const existingTime = Date.parse(existing.created_at || "") || Number.POSITIVE_INFINITY;
+    const courseTime = Date.parse(course.created_at || "") || Number.POSITIVE_INFINITY;
+    if (courseTime < existingTime) byName.set(key, course);
+  });
+  return Array.from(byName.values()).sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+}
+
+function courseMatchesSelectedCourse(recordCourseId, selectedCourseId, courseMap) {
+  if (!selectedCourseId) return true;
+  if (recordCourseId === selectedCourseId) return true;
+  const selectedName = normaliseCourseName(courseMap[selectedCourseId]?.name);
+  if (!selectedName) return false;
+  return normaliseCourseName(courseMap[recordCourseId]?.name) === selectedName;
+}
+
 function formatDisplayDateTime(value) {
   if (!value) return "";
   const date = new Date(String(value));
@@ -1255,6 +1284,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   const tcOrganisationMap = Object.fromEntries(tcOrganisations.map((org) => [org.id, org]));
   const tcMemberMap = Object.fromEntries(tcMembers.map((member) => [member.id, member]));
   const tcCourseMap = Object.fromEntries(tcCourses.map((course) => [course.id, course]));
+  const tcCourseOptions = getDedupedCourseOptions(tcCourses);
   const trainingEvidenceMap = trainingEvidence.reduce((map, evidence) => {
     const recordId = evidence.training_record_id || "";
     if (!recordId) return map;
@@ -1273,7 +1303,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
   todayForReports.setHours(0, 0, 0, 0);
   const filteredTrainingRecords = enrichedTrainingRecords.filter((record) => {
     if (tcFilters.organisation_id && record.staffMember?.organisation_id !== tcFilters.organisation_id) return false;
-    if (tcFilters.course_id && record.course_id !== tcFilters.course_id) return false;
+    if (!courseMatchesSelectedCourse(record.course_id, tcFilters.course_id, tcCourseMap)) return false;
     if (tcFilters.status && record.status !== tcFilters.status) return false;
     if (tcFilters.quick === "expiring" && record.status !== "expiring") return false;
     if (tcFilters.quick === "expired" && record.status !== "expired") return false;
@@ -4260,19 +4290,53 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
 
   async function saveTrainingRecord(e) {
     e.preventDefault();
-    const course = tcCourseMap[tcRecordForm.course_id];
-    const expiryDate = addMonthsToDate(tcRecordForm.date_completed, course?.validity_months);
+    const organisationId = String(tcRecordForm.organisation_id || "").trim();
+    const memberId = String(tcRecordForm.member_id || "").trim();
+    const courseId = String(tcRecordForm.course_id || "").trim();
+    const completedDate = parseDisplayDate(tcRecordForm.date_completed) || parseDisplayDate(tcRecordForm.date_completed_display);
+    const selectedOrganisation = tcOrganisationMap[organisationId];
+    const selectedMember = tcMemberMap[memberId];
+    const course = tcCourseMap[courseId];
+    const missingFields = [];
+
+    if (!organisationId) missingFields.push("organisation");
+    else if (!selectedOrganisation) missingFields.push("valid organisation");
+
+    if (!memberId) missingFields.push("staff member");
+    else if (!selectedMember) missingFields.push("valid staff member");
+
+    if (organisationId && selectedMember && selectedMember.organisation_id !== organisationId) {
+      missingFields.push("staff member from the selected organisation");
+    }
+
+    if (!courseId) missingFields.push("course");
+    else if (!course) missingFields.push("valid course");
+
+    if (!String(tcRecordForm.date_completed || tcRecordForm.date_completed_display || "").trim()) {
+      missingFields.push("completed date");
+    } else if (!completedDate) {
+      missingFields.push("completed date in DD/MM/YYYY format");
+    }
+
+    if (missingFields.length) {
+      showMessage("error", `Please add/select: ${missingFields.join(", ")}.`);
+      return;
+    }
+
+    const expiryDate = addMonthsToDate(completedDate, course?.validity_months);
+    if (!expiryDate) {
+      showMessage("error", "Could not calculate the expiry date for the selected course.");
+      return;
+    }
+
     const record = {
-      member_id: tcRecordForm.member_id,
-      course_id: tcRecordForm.course_id,
-      date_completed: tcRecordForm.date_completed,
+      member_id: memberId,
+      course_id: courseId,
+      date_completed: completedDate,
       expiry_date: expiryDate,
       status: getTrainingStatus(expiryDate)
     };
-    if (!tcRecordForm.organisation_id || !record.member_id || !record.course_id || !record.date_completed) {
-      showMessage("error", "Organisation, staff member, course and completed date are required.");
-      return;
-    }
+
     try {
       const { response, result } = await callAdminAction("save-training-record", { record });
       if (!response.ok) {
@@ -4397,7 +4461,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
     return enrichedTrainingRecords.filter((record) => {
       if (filters.organisation_id && record.staffMember?.organisation_id !== filters.organisation_id) return false;
       if (filters.member_id && record.member_id !== filters.member_id) return false;
-      if (filters.course_id && record.course_id !== filters.course_id) return false;
+      if (!courseMatchesSelectedCourse(record.course_id, filters.course_id, tcCourseMap)) return false;
       if (forcedStatus && record.status !== forcedStatus) return false;
       if (filters.status && record.status !== filters.status) return false;
       if (filters.quick === "valid" && record.status !== "valid") return false;
@@ -4926,7 +4990,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
           <label className="grid gap-2 text-sm font-bold text-slate-700">Export type<select value={exportOptions.type} onChange={(e) => updateExportOption("type", e.target.value)} className="rounded-xl border border-slate-200 p-3 font-normal"><option value="organisations">Company/organisation information only</option><option value="staff">Staff/member information only</option><option value="records">Staff training records only</option><option value="full_compliance">Full compliance report</option><option value="organisation_report">Individual organisation report</option><option value="staff_report">Individual staff member report</option><option value="expiring_report">Expiring soon report</option><option value="expired_report">Expired training report</option></select></label>
           <label className="grid gap-2 text-sm font-bold text-slate-700">Organisation<select name="organisation_id" value={exportOptions.filters.organisation_id} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal"><option value="">All organisations</option>{tcOrganisations.map((org) => <option key={org.id} value={org.id}>{org.name}</option>)}</select></label>
           <label className="grid gap-2 text-sm font-bold text-slate-700">Staff member<select name="member_id" value={exportOptions.filters.member_id} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal"><option value="">All staff</option>{tcMembers.filter((member) => !exportOptions.filters.organisation_id || member.organisation_id === exportOptions.filters.organisation_id).map((member) => <option key={member.id} value={member.id}>{member.full_name}</option>)}</select></label>
-          <label className="grid gap-2 text-sm font-bold text-slate-700">Course<select name="course_id" value={exportOptions.filters.course_id} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal"><option value="">All courses</option>{tcCourses.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select></label>
+          <label className="grid gap-2 text-sm font-bold text-slate-700">Course<select name="course_id" value={exportOptions.filters.course_id} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal"><option value="">All courses</option>{tcCourseOptions.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select></label>
           <label className="grid gap-2 text-sm font-bold text-slate-700">Status<select name="status" value={exportOptions.filters.status} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal"><option value="">All statuses</option><option value="valid">Valid</option><option value="expiring">Expiring</option><option value="expired">Expired</option></select></label>
           <label className="grid gap-2 text-sm font-bold text-slate-700">Quick filter<select name="quick" value={exportOptions.filters.quick} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal"><option value="">All records</option><option value="valid">Valid only</option><option value="expiring">Expiring within 30 days</option><option value="expired">Expired only</option></select></label>
           <label className="grid gap-2 text-sm font-bold text-slate-700">Completed from<input type="date" name="completed_from" value={exportOptions.filters.completed_from} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal" /></label>
@@ -5424,14 +5488,14 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                     <form onSubmit={saveTrainingRecord} className="mt-4 grid min-w-0 gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.8fr)_auto]">
                       <select name="organisation_id" value={tcRecordForm.organisation_id} onChange={updateTcRecordForm} className="min-w-0 rounded-xl border border-slate-200 p-3" required><option value="">Organisation</option>{tcOrganisations.map((org) => <option key={org.id} value={org.id}>{org.name}</option>)}</select>
                       <select name="member_id" value={tcRecordForm.member_id} onChange={updateTcRecordForm} className="min-w-0 rounded-xl border border-slate-200 p-3" required><option value="">Staff member</option>{tcMembers.filter((member) => !tcRecordForm.organisation_id || member.organisation_id === tcRecordForm.organisation_id).map((member) => <option key={member.id} value={member.id}>{member.full_name}</option>)}</select>
-                      <select name="course_id" value={tcRecordForm.course_id} onChange={updateTcRecordForm} className="min-w-0 rounded-xl border border-slate-200 p-3" required><option value="">Course</option>{tcCourses.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select>
+                      <select name="course_id" value={tcRecordForm.course_id} onChange={updateTcRecordForm} className="min-w-0 rounded-xl border border-slate-200 p-3" required><option value="">Course</option>{tcCourseOptions.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select>
                       <input name="date_completed_display" value={tcRecordForm.date_completed_display || formatDisplayDate(tcRecordForm.date_completed)} onChange={updateTcRecordForm} className="min-w-0 rounded-xl border border-slate-200 p-3" placeholder="DD/MM/YYYY" required />
                       <button type="submit" className="rounded-xl bg-slate-950 p-3 font-black text-white">Add Record</button>
                     </form>
                     {tcRecordForm.date_completed && tcRecordForm.course_id ? <p className="mt-3 rounded-xl bg-white p-3 text-sm font-semibold text-slate-700">Expiry preview: {formatDisplayDate(addMonthsToDate(tcRecordForm.date_completed, tcCourseMap[tcRecordForm.course_id]?.validity_months))} ({getTrainingStatus(addMonthsToDate(tcRecordForm.date_completed, tcCourseMap[tcRecordForm.course_id]?.validity_months))})</p> : null}
                     <div className="mt-5 grid gap-4 md:grid-cols-4">
                       <select name="organisation_id" value={tcFilters.organisation_id} onChange={updateTcFilter} className="rounded-xl border border-slate-200 p-3"><option value="">All organisations</option>{tcOrganisations.map((org) => <option key={org.id} value={org.id}>{org.name}</option>)}</select>
-                      <select name="course_id" value={tcFilters.course_id} onChange={updateTcFilter} className="rounded-xl border border-slate-200 p-3"><option value="">All courses</option>{tcCourses.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select>
+                      <select name="course_id" value={tcFilters.course_id} onChange={updateTcFilter} className="rounded-xl border border-slate-200 p-3"><option value="">All courses</option>{tcCourseOptions.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select>
                       <select name="status" value={tcFilters.status} onChange={updateTcFilter} className="rounded-xl border border-slate-200 p-3"><option value="">All statuses</option><option value="valid">Valid</option><option value="expiring">Expiring</option><option value="expired">Expired</option></select>
                       <select name="quick" value={tcFilters.quick} onChange={updateTcFilter} className="rounded-xl border border-slate-200 p-3"><option value="">No quick filter</option><option value="expiring">Expiring within 30 days</option><option value="expired">Expired only</option></select>
                     </div>
@@ -5644,7 +5708,7 @@ function BackOfficePage({ setPage, posts, setPosts, reviews, setReviews, siteSet
                     <label className="grid gap-2 text-sm font-bold text-slate-700">Export type<select value={exportOptions.type} onChange={(e) => updateExportOption("type", e.target.value)} className="rounded-xl border border-slate-200 p-3 font-normal"><option value="organisations">Company/organisation information only</option><option value="staff">Staff/member information only</option><option value="records">Staff training records only</option><option value="full_compliance">Full compliance report</option><option value="organisation_report">Individual organisation report</option><option value="staff_report">Individual staff member report</option><option value="expiring_report">Expiring soon report</option><option value="expired_report">Expired training report</option></select></label>
                     <label className="grid gap-2 text-sm font-bold text-slate-700">Organisation<select name="organisation_id" value={exportOptions.filters.organisation_id} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal"><option value="">All organisations</option>{tcOrganisations.map((org) => <option key={org.id} value={org.id}>{org.name}</option>)}</select></label>
                     <label className="grid gap-2 text-sm font-bold text-slate-700">Staff member<select name="member_id" value={exportOptions.filters.member_id} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal"><option value="">All staff</option>{tcMembers.filter((member) => !exportOptions.filters.organisation_id || member.organisation_id === exportOptions.filters.organisation_id).map((member) => <option key={member.id} value={member.id}>{member.full_name}</option>)}</select></label>
-                    <label className="grid gap-2 text-sm font-bold text-slate-700">Course<select name="course_id" value={exportOptions.filters.course_id} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal"><option value="">All courses</option>{tcCourses.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select></label>
+                    <label className="grid gap-2 text-sm font-bold text-slate-700">Course<select name="course_id" value={exportOptions.filters.course_id} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal"><option value="">All courses</option>{tcCourseOptions.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select></label>
                     <label className="grid gap-2 text-sm font-bold text-slate-700">Status<select name="status" value={exportOptions.filters.status} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal"><option value="">All statuses</option><option value="valid">Valid</option><option value="expiring">Expiring</option><option value="expired">Expired</option></select></label>
                     <label className="grid gap-2 text-sm font-bold text-slate-700">Quick filter<select name="quick" value={exportOptions.filters.quick} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal"><option value="">All records</option><option value="valid">Valid only</option><option value="expiring">Expiring within 30 days</option><option value="expired">Expired only</option></select></label>
                     <label className="grid gap-2 text-sm font-bold text-slate-700">Completed from<input type="date" name="completed_from" value={exportOptions.filters.completed_from} onChange={updateExportFilter} className="rounded-xl border border-slate-200 p-3 font-normal" /></label>
